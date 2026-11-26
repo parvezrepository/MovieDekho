@@ -224,10 +224,13 @@ class TMDBClient:
                 rel_date = data.get("release_date") or data.get("first_air_date", "")
                 today_str = datetime.date.today().isoformat()
                 status = data.get("status", "")
-                is_upcoming = bool(
-                    (rel_date and rel_date > today_str)
-                    or status in ("Post Production", "In Production", "Planned", "Upcoming")
-                )
+                if status == "Released":
+                    is_upcoming = False
+                else:
+                    is_upcoming = bool(
+                        (rel_date and rel_date > today_str)
+                        or status in ("Post Production", "In Production", "Planned", "Upcoming")
+                    )
 
                 trailer = self.get_trailer(tmdb_id, media_type=media_type)
 

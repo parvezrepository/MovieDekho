@@ -306,11 +306,8 @@ async function loadHomeFeed() {
 
 function isItemUpcoming(item) {
     if (!item) return false;
-    if (item.is_upcoming) return true;
-    const today = new Date().toISOString().split("T")[0];
-    if (item.release_date && item.release_date > today) return true;
-    if (item.year && parseInt(item.year, 10) > new Date().getFullYear()) return true;
-    return false;
+    // An item is only upcoming if explicitly verified by the backend as unreleased (e.g. Avengers: Doomsday)
+    return item.is_upcoming === true;
 }
 
 function renderHero(item) {
@@ -484,12 +481,11 @@ function setupEventListeners() {
     v.addEventListener("ended", onVideoEnded);
 
     v.addEventListener("loadedmetadata", () => {
-        // If stream is <= 120s (e.g. 22-second promotional teaser clip for an unreleased movie)
-        if (v.duration > 0 && v.duration <= 120 && !state.isTrailerMode) {
-            console.warn("Detected short teaser/promo clip (<120s). Upgrading to Official YouTube Trailer.");
+        // Only if confirmed unreleased upcoming title has a short promo teaser (<60s)
+        if (state.currentMediaItem && state.currentMediaItem.is_upcoming === true && v.duration > 0 && v.duration <= 60 && !state.isTrailerMode) {
+            console.warn("Detected short teaser clip (<60s) for upcoming title. Upgrading to Official YouTube Trailer.");
             showToast("Playing 4K Official Trailer...", 2500);
-            const target = state.currentMediaItem || { title: state.currentTitle, tmdb_id: state.currentTmdbId };
-            playTrailerForItem(target);
+            playTrailerForItem(state.currentMediaItem);
         }
     });
 
@@ -1000,11 +996,17 @@ async function openMediaDetails(item) {
             if (details.trailer) {
                 state.activeDetailTrailer = details.trailer;
             }
-            if (details.is_upcoming || isItemUpcoming(details)) {
+            const isUpc = Boolean(details.is_upcoming === true);
+            if (isUpc) {
                 if (elements.detailWatchBtnText) elements.detailWatchBtnText.textContent = "🎬 Watch Official Trailer";
                 if (elements.detailWatchBtn) elements.detailWatchBtn.classList.add("btn-trailer-glow");
                 if (elements.detailUpcomingNotice) elements.detailUpcomingNotice.style.display = "flex";
                 if (elements.detailTrailerBtn) elements.detailTrailerBtn.style.display = "none";
+            } else {
+                if (elements.detailWatchBtnText) elements.detailWatchBtnText.textContent = "Watch Movie / Series";
+                if (elements.detailWatchBtn) elements.detailWatchBtn.classList.remove("btn-trailer-glow");
+                if (elements.detailUpcomingNotice) elements.detailUpcomingNotice.style.display = "none";
+                if (elements.detailTrailerBtn) elements.detailTrailerBtn.style.display = "inline-flex";
             }
         }
     } catch (err) {
@@ -1166,7 +1168,7 @@ function closeDetailModal() {
 function watchFromDetails() {
     if (!state.activeDetailItem) return;
     closeDetailModal();
-    if (isItemUpcoming(state.activeDetailItem)) {
+    if (isItemUpcoming(state.activeDetailItem) && !state.activeDetailItem.subject_id) {
         playTrailerForItem(state.activeDetailItem, state.activeDetailTrailer);
     } else {
         openPlayer(state.activeDetailItem);
@@ -1181,7 +1183,7 @@ function watchTrailerFromDetails() {
 
 function playHero() {
     if (!state.heroItem) return;
-    if (isItemUpcoming(state.heroItem)) {
+    if (isItemUpcoming(state.heroItem) && !state.heroItem.subject_id) {
         playTrailerForItem(state.heroItem);
     } else {
         openPlayer(state.heroItem);
@@ -1201,8 +1203,8 @@ async function openPlayer(item) {
     if (!item) return;
     state.currentMediaItem = item;
 
-    // Check if this item is upcoming: if so, directly launch the official 4K trailer!
-    if (isItemUpcoming(item)) {
+    // Only unreleased upcoming titles without catalog streams directly launch trailer
+    if (isItemUpcoming(item) && !item.subject_id) {
         playTrailerForItem(item);
         return;
     }
@@ -1367,8 +1369,8 @@ async function loadMediaForPlayer(subjectId) {
         if (!resp.ok) throw new Error("Failed to load details");
         const details = await resp.json();
 
-        // If details report upcoming title, redirect to official 4K trailer
-        if (details.is_upcoming || isItemUpcoming(details)) {
+        // Only if confirmed unreleased upcoming title without streams
+        if (details.is_upcoming === true && !details.subject_id) {
             showToast("Upcoming title — launching Official 4K Trailer...", 2000);
             playTrailerForItem(state.currentMediaItem || { title: state.currentTitle, tmdb_id: details.tmdb_id }, details.trailer);
             return;

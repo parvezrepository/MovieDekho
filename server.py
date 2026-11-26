@@ -335,9 +335,6 @@ async def get_subject_detail(subject_id: str, tmdb_id: Optional[int] = None):
             details["trailer"] = None
             details["is_upcoming"] = bool(rel_date and rel_date > today_str)
 
-        if rel_date and rel_date > today_str:
-            details["is_upcoming"] = True
-
         return details
     except Exception as e:
         logger.error(f"Error fetching details for {subject_id}: {e}")
