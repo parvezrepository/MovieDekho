@@ -305,9 +305,7 @@ async function loadHomeFeed() {
 }
 
 function isItemUpcoming(item) {
-    if (!item) return false;
-    // An item is only upcoming if explicitly verified by the backend as unreleased (e.g. Avengers: Doomsday)
-    return item.is_upcoming === true;
+    return false;
 }
 
 function renderHero(item) {
@@ -317,21 +315,19 @@ function renderHero(item) {
     const rating = item.rating ? `★ ${item.rating}` : "★ 8.8";
     const type = item.media_type === "tv" || item.type === "Series" ? "TV Series" : "Movie";
     const backdropUrl = item.backdrop || item.cover || "https://image.tmdb.org/t/p/w1280/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg";
-    const isUpcoming = isItemUpcoming(item);
 
     if (elements.heroTitle) elements.heroTitle.textContent = title;
     if (elements.heroOverview) elements.heroOverview.textContent = overview;
     if (elements.heroRating) elements.heroRating.textContent = rating;
     if (elements.heroType) {
-        elements.heroType.textContent = isUpcoming ? "🎬 UPCOMING PREMIERE" : type;
-        elements.heroType.className = isUpcoming ? "badge badge-upcoming" : "badge badge-primary";
+        elements.heroType.textContent = type;
+        elements.heroType.className = "badge badge-primary";
     }
     if (elements.heroWatchBtnText) {
-        elements.heroWatchBtnText.textContent = isUpcoming ? "🎬 Watch Official Trailer" : "Watch Now";
+        elements.heroWatchBtnText.textContent = "Watch Now";
     }
     if (elements.heroWatchBtn) {
-        if (isUpcoming) elements.heroWatchBtn.classList.add("btn-trailer-glow");
-        else elements.heroWatchBtn.classList.remove("btn-trailer-glow");
+        elements.heroWatchBtn.classList.remove("btn-trailer-glow");
     }
 
     if (elements.heroBackdrop && backdropUrl) {
@@ -368,14 +364,12 @@ function createMediaCard(item) {
     const rating = item.rating || item.imdb_rating || "8.0";
     const year = item.year || (item.release_date ? item.release_date.slice(0, 4) : "2024");
     const type = item.type || (item.media_type === "tv" ? "Series" : "Movie");
-    const isUpcoming = isItemUpcoming(item);
 
     card.innerHTML = `
         <div class="card-poster-wrap">
             <img class="card-poster" src="${poster}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80'">
-            ${isUpcoming ? `<div class="card-badge-upcoming">UPCOMING</div>` : ""}
             <div class="card-badge-top">
-                ${isUpcoming ? `<span class="badge badge-upcoming" style="font-size: 10px; padding: 2px 6px;">🎬 TRAILER</span>` : `<span class="badge badge-accent" style="font-size: 10px; padding: 2px 6px;">1080p</span>`}
+                <span class="badge badge-accent" style="font-size: 10px; padding: 2px 6px;">1080p</span>
             </div>
             <div class="card-badge-rating">★ ${rating}</div>
             <div class="card-play-overlay">
@@ -384,14 +378,13 @@ function createMediaCard(item) {
                         <path d="M8 5v14l11-7z"/>
                     </svg>
                 </div>
-                ${isUpcoming ? `<span style="color:#ffffff; font-size:11px; font-weight:700; margin-top:8px; letter-spacing:0.5px; background: rgba(0,0,0,0.6); padding: 3px 8px; border-radius: 4px;">🎬 WATCH TRAILER</span>` : ""}
             </div>
         </div>
         <div class="card-info">
             <div class="card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
             <div class="card-meta">
                 <span>${year}</span>
-                <span class="badge ${isUpcoming ? "badge-upcoming" : "badge-gold"}" style="font-size: 10px; padding: 2px 6px;">${isUpcoming ? "Upcoming" : type}</span>
+                <span class="badge badge-gold" style="font-size: 10px; padding: 2px 6px;">${type}</span>
             </div>
         </div>
     `;
@@ -427,7 +420,7 @@ function setupEventListeners() {
     elements.searchInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
             const query = elements.searchInput.value.trim();
-            const year = elements.searchYearSelect.value || null;
+            const year = elements.searchYearSelect ? elements.searchYearSelect.value || null : null;
             if (query) {
                 elements.suggestBox.style.display = "none";
                 performSearch(query, year);
@@ -435,12 +428,14 @@ function setupEventListeners() {
         }
     });
 
-    elements.searchYearSelect.addEventListener("change", () => {
-        const query = elements.searchInput.value.trim();
-        if (query) {
-            performSearch(query, elements.searchYearSelect.value);
-        }
-    });
+    if (elements.searchYearSelect) {
+        elements.searchYearSelect.addEventListener("change", () => {
+            const query = elements.searchInput.value.trim();
+            if (query) {
+                performSearch(query, elements.searchYearSelect.value);
+            }
+        });
+    }
 
     // Close suggest dropdown when clicking outside
     document.addEventListener("click", (e) => {
@@ -481,12 +476,7 @@ function setupEventListeners() {
     v.addEventListener("ended", onVideoEnded);
 
     v.addEventListener("loadedmetadata", () => {
-        // Only if confirmed unreleased upcoming title has a short promo teaser (<60s)
-        if (state.currentMediaItem && state.currentMediaItem.is_upcoming === true && v.duration > 0 && v.duration <= 60 && !state.isTrailerMode) {
-            console.warn("Detected short teaser clip (<60s) for upcoming title. Upgrading to Official YouTube Trailer.");
-            showToast("Playing 4K Official Trailer...", 2500);
-            playTrailerForItem(state.currentMediaItem);
-        }
+        // Metadata loaded successfully
     });
 
     v.addEventListener("error", (e) => {
@@ -626,7 +616,7 @@ async function performSearch(query, year = null, isSilent = false) {
 
 function clearSearch() {
     elements.searchInput.value = "";
-    elements.searchYearSelect.value = "";
+    if (elements.searchYearSelect) elements.searchYearSelect.value = "";
     elements.clearSearchBtn.style.display = "none";
     elements.suggestBox.style.display = "none";
     elements.searchSection.style.display = "none";
@@ -901,20 +891,18 @@ async function openMediaDetails(item) {
         elements.detailHero.style.backgroundImage = `url('${backdrop}')`;
     }
 
-    // Set initial upcoming state & actions
-    const isUpcoming = isItemUpcoming(item);
+    // Set initial clean watch action
     if (elements.detailWatchBtnText) {
-        elements.detailWatchBtnText.textContent = isUpcoming ? "🎬 Watch Official Trailer" : "Watch Movie / Series";
+        elements.detailWatchBtnText.textContent = "Watch Movie / Series";
     }
     if (elements.detailWatchBtn) {
-        if (isUpcoming) elements.detailWatchBtn.classList.add("btn-trailer-glow");
-        else elements.detailWatchBtn.classList.remove("btn-trailer-glow");
+        elements.detailWatchBtn.classList.remove("btn-trailer-glow");
     }
     if (elements.detailUpcomingNotice) {
-        elements.detailUpcomingNotice.style.display = isUpcoming ? "flex" : "none";
+        elements.detailUpcomingNotice.style.display = "none";
     }
     if (elements.detailTrailerBtn) {
-        elements.detailTrailerBtn.style.display = isUpcoming ? "none" : "inline-flex";
+        elements.detailTrailerBtn.style.display = "inline-flex";
     }
 
     // Initialize recommendation pagination state
@@ -992,22 +980,13 @@ async function openMediaDetails(item) {
                 }
             }
 
-            // Check if upcoming confirmed by backend details
             if (details.trailer) {
                 state.activeDetailTrailer = details.trailer;
             }
-            const isUpc = Boolean(details.is_upcoming === true);
-            if (isUpc) {
-                if (elements.detailWatchBtnText) elements.detailWatchBtnText.textContent = "🎬 Watch Official Trailer";
-                if (elements.detailWatchBtn) elements.detailWatchBtn.classList.add("btn-trailer-glow");
-                if (elements.detailUpcomingNotice) elements.detailUpcomingNotice.style.display = "flex";
-                if (elements.detailTrailerBtn) elements.detailTrailerBtn.style.display = "none";
-            } else {
-                if (elements.detailWatchBtnText) elements.detailWatchBtnText.textContent = "Watch Movie / Series";
-                if (elements.detailWatchBtn) elements.detailWatchBtn.classList.remove("btn-trailer-glow");
-                if (elements.detailUpcomingNotice) elements.detailUpcomingNotice.style.display = "none";
-                if (elements.detailTrailerBtn) elements.detailTrailerBtn.style.display = "inline-flex";
-            }
+            if (elements.detailWatchBtnText) elements.detailWatchBtnText.textContent = "Watch Movie / Series";
+            if (elements.detailWatchBtn) elements.detailWatchBtn.classList.remove("btn-trailer-glow");
+            if (elements.detailUpcomingNotice) elements.detailUpcomingNotice.style.display = "none";
+            if (elements.detailTrailerBtn) elements.detailTrailerBtn.style.display = "inline-flex";
         }
     } catch (err) {
         console.error("Detail enrich error:", err);
@@ -1168,11 +1147,7 @@ function closeDetailModal() {
 function watchFromDetails() {
     if (!state.activeDetailItem) return;
     closeDetailModal();
-    if (isItemUpcoming(state.activeDetailItem) && !state.activeDetailItem.subject_id) {
-        playTrailerForItem(state.activeDetailItem, state.activeDetailTrailer);
-    } else {
-        openPlayer(state.activeDetailItem);
-    }
+    openPlayer(state.activeDetailItem);
 }
 
 function watchTrailerFromDetails() {
@@ -1183,11 +1158,7 @@ function watchTrailerFromDetails() {
 
 function playHero() {
     if (!state.heroItem) return;
-    if (isItemUpcoming(state.heroItem) && !state.heroItem.subject_id) {
-        playTrailerForItem(state.heroItem);
-    } else {
-        openPlayer(state.heroItem);
-    }
+    openPlayer(state.heroItem);
 }
 
 function openHeroDetails() {
@@ -1197,17 +1168,11 @@ function openHeroDetails() {
 }
 
 // ==========================================================================
-// Advanced Media Player & Official Trailer Orchestrator
+// Advanced Media Player & Official Stream Orchestrator
 // ==========================================================================
 async function openPlayer(item) {
     if (!item) return;
     state.currentMediaItem = item;
-
-    // Only unreleased upcoming titles without catalog streams directly launch trailer
-    if (isItemUpcoming(item) && !item.subject_id) {
-        playTrailerForItem(item);
-        return;
-    }
 
     let subjectId = item.subject_id;
     let title = item.title;
@@ -1223,13 +1188,21 @@ async function openPlayer(item) {
             if (bData.subject_id) {
                 subjectId = bData.subject_id;
             } else {
-                showToast("Stream candidate not in catalog — loading Official Trailer...", 3000);
-                playTrailerForItem(item);
-                return;
+                const sResp = await fetch(`/api/search?q=${encodeURIComponent(title)}`);
+                const sData = await sResp.json();
+                const matched = sData && sData.results && sData.results.length > 0 ? sData.results[0] : null;
+                if (matched && matched.subject_id) {
+                    subjectId = matched.subject_id;
+                } else {
+                    hidePlayerLoader();
+                    showToast(`Stream server is preparing "${title}". Please choose another title from Home or Search!`, 3500);
+                    return;
+                }
             }
         } catch (err) {
             console.error("Match error:", err);
-            playTrailerForItem(item);
+            hidePlayerLoader();
+            showToast(`Could not connect stream server for "${title}". Please try again!`, 3500);
             return;
         }
     } else {
@@ -1368,13 +1341,6 @@ async function loadMediaForPlayer(subjectId) {
         const resp = await fetch(`/api/detail/${subjectId}`);
         if (!resp.ok) throw new Error("Failed to load details");
         const details = await resp.json();
-
-        // Only if confirmed unreleased upcoming title without streams
-        if (details.is_upcoming === true && !details.subject_id) {
-            showToast("Upcoming title — launching Official 4K Trailer...", 2000);
-            playTrailerForItem(state.currentMediaItem || { title: state.currentTitle, tmdb_id: details.tmdb_id }, details.trailer);
-            return;
-        }
 
         state.isSeries = details.subject_type === 2 || details.type === "Series";
 
