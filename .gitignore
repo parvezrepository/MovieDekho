@@ -1,0 +1,23 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Development & temporary files
+.snapshots/
+*.log
+server_*.log
+out.log
+err.log
+
+# External / unrelated repositories
+repo/
+kothon-52-bangla-tts/
