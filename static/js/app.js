@@ -524,12 +524,28 @@ function setupEventListeners() {
         }
     });
 
-    // Fullscreen state listener
-    document.addEventListener("fullscreenchange", () => {
-        const isFs = !!document.fullscreenElement;
-        elements.enterFullscreenIcon.style.display = isFs ? "none" : "block";
-        elements.exitFullscreenIcon.style.display = isFs ? "block" : "none";
+    // Video container double-click to toggle fullscreen
+    elements.videoContainer.addEventListener("dblclick", (e) => {
+        if (e.target.closest(".player-controls-overlay") || e.target.closest(".player-settings-panel")) {
+            return;
+        }
+        toggleFullscreen();
     });
+
+    // Cross-browser Fullscreen state listeners
+    const fsEvents = ["fullscreenchange", "webkitfullscreenchange", "mozfullscreenchange", "MSFullscreenChange"];
+    fsEvents.forEach((evt) => {
+        document.addEventListener(evt, updateFullscreenUi);
+    });
+
+    if (elements.videoPlayer) {
+        elements.videoPlayer.addEventListener("webkitbeginfullscreen", () => {
+            updateFullscreenUi();
+        });
+        elements.videoPlayer.addEventListener("webkitendfullscreen", () => {
+            updateFullscreenUi();
+        });
+    }
 
     // Keyboard Shortcuts
     document.addEventListener("keydown", handleKeyboardShortcuts);
@@ -1902,13 +1918,77 @@ function togglePiP() {
     }
 }
 
-function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-        elements.playerModal.requestFullscreen().catch(() => {});
-    } else {
-        document.exitFullscreen().catch(() => {});
+function getFullscreenElement() {
+    return (
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement ||
+        (elements.videoContainer && elements.videoContainer.classList.contains("is-fullscreen") ? elements.videoContainer : null)
+    );
+}
+
+function updateFullscreenUi() {
+    const isFs = !!getFullscreenElement();
+    if (elements.enterFullscreenIcon) {
+        elements.enterFullscreenIcon.style.display = isFs ? "none" : "block";
+    }
+    if (elements.exitFullscreenIcon) {
+        elements.exitFullscreenIcon.style.display = isFs ? "block" : "none";
+    }
+    if (elements.videoContainer) {
+        elements.videoContainer.classList.toggle("is-fullscreen", isFs);
     }
 }
+
+async function toggleFullscreen() {
+    const target = elements.videoContainer || elements.playerModal;
+    const isCurrentlyFs = !!getFullscreenElement();
+
+    if (!isCurrentlyFs) {
+        try {
+            if (target && target.requestFullscreen) {
+                await target.requestFullscreen();
+            } else if (target && target.webkitRequestFullscreen) {
+                await target.webkitRequestFullscreen();
+            } else if (target && target.webkitRequestFullScreen) {
+                await target.webkitRequestFullScreen();
+            } else if (target && target.mozRequestFullScreen) {
+                await target.mozRequestFullScreen();
+            } else if (target && target.msRequestFullscreen) {
+                await target.msRequestFullscreen();
+            } else if (elements.videoPlayer && elements.videoPlayer.webkitEnterFullscreen) {
+                elements.videoPlayer.webkitEnterFullscreen();
+                return;
+            } else {
+                if (target) target.classList.add("is-fullscreen");
+            }
+        } catch (err) {
+            console.warn("Fullscreen request error, applying viewport cinema fallback:", err);
+            if (target) target.classList.toggle("is-fullscreen");
+        }
+    } else {
+        try {
+            if (document.exitFullscreen) {
+                await document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                await document.webkitExitFullscreen();
+            } else if (document.mozCancelFullScreen) {
+                await document.mozCancelFullScreen();
+            } else if (document.msExitFullscreen) {
+                await document.msExitFullscreen();
+            }
+        } catch (err) {
+            console.warn("Exit fullscreen error:", err);
+        }
+        if (target) {
+            target.classList.remove("is-fullscreen");
+        }
+    }
+    updateFullscreenUi();
+}
+
+window.toggleFullscreen = toggleFullscreen;
 
 function toggleSettingsPanel() {
     elements.playerSettingsPanel.classList.toggle("active");
