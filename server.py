@@ -383,6 +383,24 @@ async def get_official_trailer(
     return trailer
 
 
+@app.get("/api/recommendations/{tmdb_id}")
+async def get_recommendations_endpoint(
+    tmdb_id: int,
+    media_type: str = "movie",
+    page: int = 1,
+):
+    """Returns paginated recommendations and similar titles for infinite scrolling."""
+    safe_page = max(1, page)
+    items = tmdb.get_recommendations(tmdb_id, media_type=media_type, page=safe_page)
+    return {
+        "tmdb_id": tmdb_id,
+        "page": safe_page,
+        "media_type": media_type,
+        "count": len(items),
+        "results": items,
+    }
+
+
 # ---------------------------------------------------------------------------
 # AUDIO OPTIONS (DUAL / MULTI-AUDIO ENGINE)
 # ---------------------------------------------------------------------------

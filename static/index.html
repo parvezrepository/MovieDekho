@@ -13,7 +13,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=3.0">
+    <link rel="stylesheet" href="/static/css/style.css?v=3.1">
 </head>
 
 <body>
@@ -195,6 +195,13 @@
             </div>
             <div id="seriesGrid" class="media-grid"></div>
         </section>
+
+        <!-- Global Infinite Scroll Loader & Sentinel -->
+        <div id="catalogInfiniteLoader" class="catalog-infinite-loader" style="display: none;">
+            <div class="spinner-sm"></div>
+            <span>Loading more titles...</span>
+        </div>
+        <div id="catalogInfiniteSentinel" style="height: 30px; margin-top: 24px;"></div>
     </main>
 
     <!-- =====================================================================
@@ -279,8 +286,20 @@
 
             <!-- Recommended / Similar Titles -->
             <div class="detail-section">
-                <h3 class="detail-section-title">More Like This</h3>
+                <div class="section-header">
+                    <h3 class="detail-section-title">More Like This</h3>
+                </div>
                 <div id="detailRecommendationsGrid" class="media-grid"></div>
+                <div class="load-more-wrap" id="detailRecommendationsLoadMoreWrap" style="text-align: center; margin-top: 20px;">
+                    <button class="btn btn-secondary" id="detailRecommendationsLoadMoreBtn" onclick="loadMoreDetailRecommendations()">
+                        <span>✨ See More Recommendations</span>
+                    </button>
+                    <div id="detailRecInfiniteSpinner" class="infinite-loader" style="display: none;">
+                        <div class="spinner-sm"></div>
+                        <span style="font-size: 13px; color: var(--text-muted); margin-left: 8px;">Loading more like this...</span>
+                    </div>
+                </div>
+                <div id="detailRecSentinel" style="height: 10px;"></div>
             </div>
         </div>
     </div>
@@ -600,7 +619,7 @@
     </footer>
 
     <!-- App Script -->
-    <script src="/static/js/app.js?v=3.0"></script>
+    <script src="/static/js/app.js?v=3.1"></script>
 </body>
 
 </html>

@@ -273,29 +273,53 @@ class TMDBClient:
             logger.error(f"Error fetching credits for {tmdb_id}: {e}")
         return []
 
-    def get_recommendations(self, tmdb_id: int, media_type: str = "movie") -> List[Dict[str, Any]]:
-        """Retrieves related and recommended titles."""
+    def get_recommendations(
+        self,
+        tmdb_id: int,
+        media_type: str = "movie",
+        page: int = 1,
+    ) -> List[Dict[str, Any]]:
+        """Retrieves related and recommended titles with pagination and similar fallback."""
         endpoint = "movie" if media_type == "movie" else "tv"
         url = f"{TMDB_BASE_URL}/{endpoint}/{tmdb_id}/recommendations"
         try:
-            resp = self.client.get(url, params={"api_key": self.api_key})
+            resp = self.client.get(url, params={"api_key": self.api_key, "page": page})
+            results = []
             if resp.status_code == 200:
                 results = resp.json().get("results", [])
-                items = []
-                for r in results[:12]:
-                    title = r.get("title") or r.get("name")
-                    poster_path = r.get("poster_path")
-                    backdrop_path = r.get("backdrop_path")
-                    items.append({
-                        "tmdb_id": r.get("id"),
-                        "title": title,
-                        "type": "Series" if media_type == "tv" else "Movie",
-                        "rating": round(r.get("vote_average", 0), 1),
-                        "year": (r.get("release_date") or r.get("first_air_date") or "")[:4],
-                        "poster": f"{IMG_BASE_W500}{poster_path}" if poster_path else None,
-                        "backdrop": f"{IMG_BASE_W1280}{backdrop_path}" if backdrop_path else None,
-                    })
-                return items
+
+            # If recommendations are few, augment with similar titles
+            if len(results) < 8:
+                sim_url = f"{TMDB_BASE_URL}/{endpoint}/{tmdb_id}/similar"
+                sim_resp = self.client.get(sim_url, params={"api_key": self.api_key, "page": page})
+                if sim_resp.status_code == 200:
+                    sim_results = sim_resp.json().get("results", [])
+                    existing_ids = {r.get("id") for r in results}
+                    for sr in sim_results:
+                        if sr.get("id") not in existing_ids:
+                            results.append(sr)
+
+            today_str = datetime.date.today().isoformat()
+            items = []
+            for r in results:
+                title = r.get("title") or r.get("name")
+                poster_path = r.get("poster_path")
+                backdrop_path = r.get("backdrop_path")
+                rel_date = r.get("release_date") or r.get("first_air_date") or ""
+                is_upcoming = bool(rel_date and rel_date > today_str)
+
+                items.append({
+                    "tmdb_id": r.get("id"),
+                    "title": title,
+                    "type": "Series" if media_type == "tv" else "Movie",
+                    "rating": round(r.get("vote_average", 0), 1),
+                    "year": rel_date[:4] if rel_date else "2024",
+                    "release_date": rel_date,
+                    "is_upcoming": is_upcoming,
+                    "poster": f"{IMG_BASE_W500}{poster_path}" if poster_path else None,
+                    "backdrop": f"{IMG_BASE_W1280}{backdrop_path}" if backdrop_path else None,
+                })
+            return items
         except Exception as e:
             logger.error(f"Error fetching recommendations: {e}")
         return []

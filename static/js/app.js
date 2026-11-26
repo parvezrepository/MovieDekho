@@ -61,6 +61,22 @@ const state = {
     isTrailerMode: false,
     activeDetailTrailer: null,
     currentMediaItem: null,
+
+    // Infinite Scroll & Pagination State
+    activeTab: "home",
+    catalogPage: 1,
+    isCatalogLoading: false,
+    catalogHasMore: true,
+    searchCurrentQuery: "",
+    searchCurrentYear: null,
+    activeFilterParams: null,
+
+    // Recommendations Pagination (Modal)
+    detailActiveTmdbId: null,
+    detailActiveMediaType: "movie",
+    detailRecPage: 1,
+    detailRecLoading: false,
+    detailRecHasMore: true,
 };
 
 // DOM Elements Cache
@@ -92,6 +108,8 @@ const elements = {
     trendingGrid: document.getElementById("trendingGrid"),
     moviesGrid: document.getElementById("moviesGrid"),
     seriesGrid: document.getElementById("seriesGrid"),
+    catalogInfiniteLoader: document.getElementById("catalogInfiniteLoader"),
+    catalogInfiniteSentinel: document.getElementById("catalogInfiniteSentinel"),
 
     // Details Modal
     detailModal: document.getElementById("detailModal"),
@@ -107,6 +125,10 @@ const elements = {
     detailOverview: document.getElementById("detailOverview"),
     detailCastGrid: document.getElementById("detailCastGrid"),
     detailRecommendationsGrid: document.getElementById("detailRecommendationsGrid"),
+    detailRecommendationsLoadMoreWrap: document.getElementById("detailRecommendationsLoadMoreWrap"),
+    detailRecommendationsLoadMoreBtn: document.getElementById("detailRecommendationsLoadMoreBtn"),
+    detailRecInfiniteSpinner: document.getElementById("detailRecInfiniteSpinner"),
+    detailRecSentinel: document.getElementById("detailRecSentinel"),
     detailWatchBtn: document.getElementById("detailWatchBtn"),
     detailWatchBtnText: document.getElementById("detailWatchBtnText"),
     detailTrailerBtn: document.getElementById("detailTrailerBtn"),
@@ -186,6 +208,8 @@ async function initApp() {
     renderSkeletons();
     loadSavedSettings();
     setupEventListeners();
+    setupCatalogInfiniteScroll();
+    setupModalInfiniteScroll();
     await Promise.allSettled([loadGenres(), loadHomeFeed()]);
 }
 
@@ -556,6 +580,13 @@ async function fetchSuggestions(query) {
 
 async function performSearch(query, year = null, isSilent = false) {
     if (!query) return;
+    state.activeTab = "search";
+    state.catalogPage = 1;
+    state.catalogHasMore = true;
+    state.searchCurrentQuery = query;
+    state.searchCurrentYear = year;
+    state.activeFilterParams = null;
+
     if (!isSilent) showToast(`Searching for "${query}"...`, 1500);
 
     let url = `/api/search?q=${encodeURIComponent(query)}`;
@@ -587,6 +618,14 @@ function clearSearch() {
     elements.clearSearchBtn.style.display = "none";
     elements.suggestBox.style.display = "none";
     elements.searchSection.style.display = "none";
+    state.searchCurrentQuery = "";
+    state.searchCurrentYear = null;
+    state.activeFilterParams = null;
+    state.catalogPage = 1;
+    state.catalogHasMore = true;
+    if (state.activeTab === "search" || state.activeTab === "filter") {
+        state.activeTab = "home";
+    }
 }
 
 function closeSearch() {
@@ -604,14 +643,19 @@ async function applyFilters() {
     const ratingMin = elements.ratingFilter.value || null;
     const sortBy = elements.sortByFilter.value || "popularity.desc";
 
-    let url = `/api/discover?media_type=movie&sort_by=${sortBy}`;
-    if (genreId) url += `&genre_id=${genreId}`;
-    if (year) url += `&year=${year}`;
-    if (ratingMin) url += `&rating_min=${ratingMin}`;
+    let queryParams = `media_type=movie&sort_by=${sortBy}`;
+    if (genreId) queryParams += `&genre_id=${genreId}`;
+    if (year) queryParams += `&year=${year}`;
+    if (ratingMin) queryParams += `&rating_min=${ratingMin}`;
+
+    state.activeTab = "filter";
+    state.activeFilterParams = queryParams;
+    state.catalogPage = 1;
+    state.catalogHasMore = true;
 
     showToast("Filtering catalog...", 1500);
     try {
-        const resp = await fetch(url);
+        const resp = await fetch(`/api/discover?${queryParams}`);
         const data = await resp.json();
         const results = data.results || [];
 
@@ -635,6 +679,10 @@ function resetFilters() {
     elements.ratingFilter.value = "";
     elements.sortByFilter.value = "popularity.desc";
     elements.filterBar.classList.remove("active");
+    state.activeFilterParams = null;
+    state.activeTab = "home";
+    state.catalogPage = 1;
+    state.catalogHasMore = true;
     clearSearch();
 }
 
@@ -648,6 +696,10 @@ function navigateTo(tab, event) {
     const seriesSec = document.getElementById("seriesSection");
 
     clearSearch();
+
+    state.activeTab = tab;
+    state.catalogPage = 1;
+    state.catalogHasMore = true;
 
     if (tab === "home") {
         trendingSec.style.display = "block";
@@ -668,7 +720,147 @@ function navigateTo(tab, event) {
 }
 
 // ==========================================================================
-// Movie Details Modal (Deep Metadata, Cast, Recommendations)
+// Infinite Scroll & Pagination Engine (Catalog & Modal)
+// ==========================================================================
+function appendCardsToGrid(container, items) {
+    if (!container || !items || items.length === 0) return;
+    const existingTitles = new Set();
+    container.querySelectorAll(".card-title").forEach((el) => {
+        existingTitles.add(el.textContent.trim().toLowerCase());
+    });
+
+    items.forEach((item) => {
+        const t = (item.title || "").trim().toLowerCase();
+        if (!existingTitles.has(t)) {
+            existingTitles.add(t);
+            const card = createMediaCard(item);
+            container.appendChild(card);
+        }
+    });
+}
+
+async function loadNextCatalogPage() {
+    if (state.isCatalogLoading || !state.catalogHasMore) return;
+    state.isCatalogLoading = true;
+
+    if (elements.catalogInfiniteLoader) {
+        elements.catalogInfiniteLoader.style.display = "flex";
+    }
+
+    state.catalogPage += 1;
+    const nextPage = state.catalogPage;
+
+    try {
+        if (state.activeTab === "movies") {
+            const resp = await fetch(`/api/discover?media_type=movie&page=${nextPage}&sort_by=popularity.desc`);
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+            const results = data.results || [];
+            if (results.length === 0) {
+                state.catalogHasMore = false;
+            } else {
+                appendCardsToGrid(elements.moviesGrid, results);
+            }
+        } else if (state.activeTab === "series") {
+            const resp = await fetch(`/api/discover?media_type=tv&page=${nextPage}&sort_by=popularity.desc`);
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+            const results = data.results || [];
+            if (results.length === 0) {
+                state.catalogHasMore = false;
+            } else {
+                appendCardsToGrid(elements.seriesGrid, results);
+            }
+        } else if (state.activeTab === "filter" && state.activeFilterParams) {
+            let url = `/api/discover?page=${nextPage}&${state.activeFilterParams}`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+            const results = data.results || [];
+            if (results.length === 0) {
+                state.catalogHasMore = false;
+            } else {
+                appendCardsToGrid(elements.searchResultsGrid, results);
+            }
+        } else if (state.activeTab === "search" && state.searchCurrentQuery) {
+            let url = `/api/search?q=${encodeURIComponent(state.searchCurrentQuery)}&page=${nextPage}`;
+            if (state.searchCurrentYear) url += `&year=${state.searchCurrentYear}`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+            const results = data.results || [];
+            if (results.length === 0) {
+                state.catalogHasMore = false;
+            } else {
+                appendCardsToGrid(elements.searchResultsGrid, results);
+            }
+        } else {
+            // "home" tab — discover additional popular titles
+            const resp = await fetch(`/api/discover?media_type=movie&page=${nextPage}&sort_by=popularity.desc`);
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+            const results = data.results || [];
+            if (results.length === 0) {
+                state.catalogHasMore = false;
+            } else {
+                appendCardsToGrid(elements.moviesGrid, results);
+            }
+        }
+    } catch (err) {
+        console.error("Infinite scroll catalog load error:", err);
+        state.catalogHasMore = false;
+    } finally {
+        state.isCatalogLoading = false;
+        if (elements.catalogInfiniteLoader) {
+            elements.catalogInfiniteLoader.style.display = "none";
+        }
+    }
+}
+
+function setupCatalogInfiniteScroll() {
+    // 1. IntersectionObserver on catalog sentinel
+    if ("IntersectionObserver" in window && elements.catalogInfiniteSentinel) {
+        const catalogObserver = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting && state.catalogHasMore && !state.isCatalogLoading) {
+                    loadNextCatalogPage();
+                }
+            },
+            {
+                root: null,
+                rootMargin: "300px",
+            }
+        );
+        catalogObserver.observe(elements.catalogInfiniteSentinel);
+    }
+
+    // 2. Window scroll fallback
+    let isWindowScrollThrottled = false;
+    window.addEventListener(
+        "scroll",
+        () => {
+            if (isWindowScrollThrottled) return;
+            isWindowScrollThrottled = true;
+            setTimeout(() => {
+                isWindowScrollThrottled = false;
+            }, 200);
+
+            const scrollY = window.scrollY || window.pageYOffset;
+            const totalHeight = document.documentElement.scrollHeight;
+            const windowHeight = window.innerHeight;
+
+            if (scrollY + windowHeight >= totalHeight - 400) {
+                if (state.catalogHasMore && !state.isCatalogLoading) {
+                    loadNextCatalogPage();
+                }
+            }
+        },
+        { passive: true }
+    );
+}
+
+// ==========================================================================
+// Movie Details Modal (Deep Metadata, Cast, Recommendations & Infinite Scroll)
 // ==========================================================================
 async function openMediaDetails(item) {
     if (!item) return;
@@ -713,6 +905,28 @@ async function openMediaDetails(item) {
         elements.detailTrailerBtn.style.display = isUpcoming ? "none" : "inline-flex";
     }
 
+    // Initialize recommendation pagination state
+    state.detailActiveTmdbId = item.tmdb_id || null;
+    state.detailActiveMediaType = item.media_type || (item.type === "Series" ? "tv" : "movie");
+    state.detailRecPage = 1;
+    state.detailRecHasMore = true;
+    state.detailRecLoading = false;
+
+    if (elements.detailRecommendationsLoadMoreWrap) {
+        elements.detailRecommendationsLoadMoreWrap.style.display = "block";
+        elements.detailRecommendationsLoadMoreWrap.innerHTML = `
+            <button class="btn btn-secondary" id="detailRecommendationsLoadMoreBtn" onclick="loadMoreDetailRecommendations()">
+                <span>✨ See More Recommendations</span>
+            </button>
+            <div id="detailRecInfiniteSpinner" class="infinite-loader" style="display: none;">
+                <div class="spinner-sm"></div>
+                <span style="font-size: 13px; color: var(--text-muted); margin-left: 8px;">Loading more like this...</span>
+            </div>
+        `;
+        elements.detailRecommendationsLoadMoreBtn = document.getElementById("detailRecommendationsLoadMoreBtn");
+        elements.detailRecInfiniteSpinner = document.getElementById("detailRecInfiniteSpinner");
+    }
+
     state.activeDetailItem = item;
     state.activeDetailTrailer = item.trailer || null;
 
@@ -747,8 +961,24 @@ async function openMediaDetails(item) {
             // Render Cast
             renderCast(details.cast || []);
 
-            // Render Recommendations
-            renderGrid(elements.detailRecommendationsGrid, details.recommendations || []);
+            // Set verified TMDB ID & Media Type for recommendations pagination
+            if (details.tmdb_id) state.detailActiveTmdbId = details.tmdb_id;
+            if (details.media_type) state.detailActiveMediaType = details.media_type;
+
+            // Render Initial Recommendations
+            const initialRecs = details.recommendations || [];
+            renderGrid(elements.detailRecommendationsGrid, initialRecs);
+
+            if (initialRecs.length === 0) {
+                state.detailRecHasMore = false;
+                if (elements.detailRecommendationsLoadMoreWrap) {
+                    elements.detailRecommendationsLoadMoreWrap.style.display = "none";
+                }
+            } else {
+                if (elements.detailRecommendationsLoadMoreWrap) {
+                    elements.detailRecommendationsLoadMoreWrap.style.display = "block";
+                }
+            }
 
             // Check if upcoming confirmed by backend details
             if (details.trailer) {
@@ -765,6 +995,132 @@ async function openMediaDetails(item) {
         console.error("Detail enrich error:", err);
     }
 }
+
+async function loadMoreDetailRecommendations() {
+    if (!state.detailActiveTmdbId) return;
+    if (state.detailRecLoading || !state.detailRecHasMore) return;
+
+    state.detailRecLoading = true;
+    if (elements.detailRecInfiniteSpinner) {
+        elements.detailRecInfiniteSpinner.style.display = "inline-flex";
+    }
+    if (elements.detailRecommendationsLoadMoreBtn) {
+        elements.detailRecommendationsLoadMoreBtn.style.display = "none";
+    }
+
+    state.detailRecPage += 1;
+    const url = `/api/recommendations/${state.detailActiveTmdbId}?media_type=${encodeURIComponent(state.detailActiveMediaType || "movie")}&page=${state.detailRecPage}`;
+
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const data = await resp.json();
+        const results = data.results || [];
+
+        if (results.length === 0) {
+            state.detailRecHasMore = false;
+            if (elements.detailRecommendationsLoadMoreWrap) {
+                elements.detailRecommendationsLoadMoreWrap.innerHTML = `
+                    <p style="font-size: 13px; color: var(--text-muted); margin-top: 10px;">
+                        ✓ You've viewed all recommended titles.
+                    </p>
+                `;
+            }
+        } else {
+            // Append recommendations without duplicates
+            const existingTitles = new Set();
+            elements.detailRecommendationsGrid.querySelectorAll(".card-title").forEach((el) => {
+                existingTitles.add(el.textContent.trim().toLowerCase());
+            });
+
+            let addedCount = 0;
+            results.forEach((rec) => {
+                const recTitle = (rec.title || "").trim().toLowerCase();
+                if (!existingTitles.has(recTitle)) {
+                    existingTitles.add(recTitle);
+                    const card = createMediaCard(rec);
+                    elements.detailRecommendationsGrid.appendChild(card);
+                    addedCount++;
+                }
+            });
+
+            if (results.length < 5 || addedCount === 0) {
+                state.detailRecHasMore = false;
+                if (elements.detailRecommendationsLoadMoreWrap) {
+                    elements.detailRecommendationsLoadMoreWrap.innerHTML = `
+                        <p style="font-size: 13px; color: var(--text-muted); margin-top: 10px;">
+                            ✓ All related titles loaded.
+                        </p>
+                    `;
+                }
+            } else {
+                if (elements.detailRecommendationsLoadMoreBtn) {
+                    elements.detailRecommendationsLoadMoreBtn.style.display = "inline-flex";
+                    elements.detailRecommendationsLoadMoreBtn.innerHTML = "<span>✨ See More Recommendations</span>";
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Failed to load more recommendations:", err);
+        state.detailRecHasMore = false;
+        if (elements.detailRecommendationsLoadMoreWrap) {
+            elements.detailRecommendationsLoadMoreWrap.innerHTML = `
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: 10px;">
+                    All available recommendations displayed.
+                </p>
+            `;
+        }
+    } finally {
+        state.detailRecLoading = false;
+        if (elements.detailRecInfiniteSpinner) {
+            elements.detailRecInfiniteSpinner.style.display = "none";
+        }
+    }
+}
+
+function setupModalInfiniteScroll() {
+    const dialog = document.querySelector(".detail-dialog");
+    if (!dialog) return;
+
+    let isModalScrollThrottled = false;
+    dialog.addEventListener(
+        "scroll",
+        () => {
+            if (isModalScrollThrottled) return;
+            isModalScrollThrottled = true;
+            setTimeout(() => {
+                isModalScrollThrottled = false;
+            }, 150);
+
+            // Trigger when scrolled near bottom of dialog
+            if (dialog.scrollTop + dialog.clientHeight >= dialog.scrollHeight - 300) {
+                if (state.detailRecHasMore && !state.detailRecLoading && state.detailActiveTmdbId) {
+                    loadMoreDetailRecommendations();
+                }
+            }
+        },
+        { passive: true }
+    );
+
+    // Also support IntersectionObserver on detailRecSentinel if supported
+    if ("IntersectionObserver" in window && elements.detailRecSentinel) {
+        const modalObserver = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting && state.detailRecHasMore && !state.detailRecLoading && state.detailActiveTmdbId) {
+                    loadMoreDetailRecommendations();
+                }
+            },
+            {
+                root: dialog,
+                rootMargin: "250px",
+            }
+        );
+        modalObserver.observe(elements.detailRecSentinel);
+    }
+}
+
+// Expose globally for inline button onclick attributes
+window.loadMoreDetailRecommendations = loadMoreDetailRecommendations;
 
 function renderCast(castList) {
     if (!castList || castList.length === 0) {
