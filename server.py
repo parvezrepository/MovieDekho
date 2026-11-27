@@ -906,7 +906,7 @@ PROXY_HTTP_CLIENT = httpx.AsyncClient(
 )
 
 
-@app.get("/api/proxy/stream")
+@app.api_route("/api/proxy/stream", methods=["GET", "HEAD"])
 async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None):
     """
     Ultra-fast asynchronous video streaming proxy supporting HTTP 206 Range requests.
@@ -941,7 +941,7 @@ async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None)
         req_headers["Range"] = client_range
 
     try:
-        upstream_req = PROXY_HTTP_CLIENT.build_request("GET", decoded_url, headers=req_headers)
+        upstream_req = PROXY_HTTP_CLIENT.build_request("HEAD" if request.method == "HEAD" else "GET", decoded_url, headers=req_headers)
         upstream_resp = await PROXY_HTTP_CLIENT.send(upstream_req, stream=True)
 
         status_code = upstream_resp.status_code
@@ -962,6 +962,10 @@ async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None)
             res_headers["Content-Range"] = upstream_resp.headers["Content-Range"]
         if "Content-Length" in upstream_resp.headers:
             res_headers["Content-Length"] = upstream_resp.headers["Content-Length"]
+
+        if request.method == "HEAD":
+            await upstream_resp.aclose()
+            return Response(content=b"", status_code=status_code, headers=res_headers)
 
         async def stream_generator():
             try:
