@@ -1318,8 +1318,52 @@ async function loadMediaForPlayer(subjectId) {
 }
 
 // ==========================================================================
-// Streaming Sources & Video Quality Manager
+// Streaming Sources & Smart Adaptive Video Quality Manager
 // ==========================================================================
+
+// Intelligent Network & Device Adaptive Quality Selector
+function selectAdaptiveStream(streams) {
+    if (!streams || streams.length === 0) return null;
+
+    // Check Network Information API
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const isMobile = window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    const isSaveData = conn && conn.saveData;
+    const effectiveType = conn && conn.effectiveType ? conn.effectiveType : "4g"; // '4g', '3g', '2g', 'slow-2g'
+    const downlink = conn && conn.downlink ? conn.downlink : 10; // in Mbps
+
+    // Determine target quality based on network speed & device capabilities:
+    // Notice: 4K (2160p) streams are 6-15 GB and require 35+ Mbps uninterrupted bitrate
+    // and powerful hardware decoders. 1080p is the golden standard for instant bufferless play.
+    let targetQuality = 1080;
+
+    if (isSaveData || effectiveType === "2g" || effectiveType === "slow-2g" || downlink < 1.5) {
+        targetQuality = 480; // Slow / Data-saver mode
+    } else if (effectiveType === "3g" || downlink < 4 || (isMobile && downlink < 8)) {
+        targetQuality = 720; // 3G or moderate mobile data
+    } else if (isMobile) {
+        targetQuality = 1080; // Mobile devices: 1080p gives maximum sharpness without 4K overheating
+    } else if (!isMobile && downlink >= 35 && window.innerWidth >= 2560) {
+        // High-end desktop on ultra-fast broadband and 2K/4K monitor
+        targetQuality = 2160;
+    } else {
+        targetQuality = 1080; // Standard fast broadband desktop default
+    }
+
+    // Try finding stream matching targetQuality or highest quality <= targetQuality
+    const suitable = streams.filter(s => (s.quality_value || 0) <= targetQuality);
+    if (suitable.length > 0) {
+        suitable.sort((a, b) => (b.quality_value || 0) - (a.quality_value || 0));
+        return suitable[0];
+    }
+
+    // If all available streams exceed targetQuality (e.g. only 4K available), pick lowest available so it plays easiest
+    const sortedAsc = [...streams].sort((a, b) => (a.quality_value || 0) - (b.quality_value || 0));
+    return sortedAsc[0] || streams[0];
+}
+
+let videoStallTimeout = null;
+
 async function loadStreamsAndCaptions(subjectId, season = 0, episode = 0, resumeTime = 0, autoPlay = true) {
     showPlayerLoader("Resolving high-speed buffer-free stream...");
 
@@ -1343,9 +1387,10 @@ async function loadStreamsAndCaptions(subjectId, season = 0, episode = 0, resume
             return;
         }
 
-        // Default to best quality (1080p if available)
-        const bestStream = state.availableStreams[0];
-        state.currentStream = bestStream;
+        // Auto-select optimal stream based on user network and device
+        state.isAutoQuality = true;
+        const optimalStream = selectAdaptiveStream(state.availableStreams);
+        state.currentStream = optimalStream;
 
         // Populate Settings Panel Options
         renderQualityOptions(state.availableStreams);
@@ -1353,7 +1398,7 @@ async function loadStreamsAndCaptions(subjectId, season = 0, episode = 0, resume
         renderSubtitleOptions(state.availableCaptions);
 
         // Apply stream to custom player via HTTP 206 Proxy
-        applyVideoStream(bestStream, resumeTime, autoPlay);
+        applyVideoStream(optimalStream, resumeTime, autoPlay);
     } catch (err) {
         console.error("Streams fetch error:", err);
         showToast("Stream loading error: " + err.message, 4000);
@@ -1362,6 +1407,11 @@ async function loadStreamsAndCaptions(subjectId, season = 0, episode = 0, resume
 }
 
 function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
+    if (videoStallTimeout) {
+        clearTimeout(videoStallTimeout);
+        videoStallTimeout = null;
+    }
+
     showPlayerLoader(`Starting ${stream.quality} (${stream.source_name ? stream.source_name.split("(")[0].trim() : "Stream"})...`);
 
     const streamUrl = stream.proxy_url || stream.url;
@@ -1379,6 +1429,10 @@ function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
     const triggerInstantPlay = () => {
         if (started) return;
         started = true;
+        if (videoStallTimeout) {
+            clearTimeout(videoStallTimeout);
+            videoStallTimeout = null;
+        }
         hidePlayerLoader();
         if (resumeTime > 0) {
             try { elements.videoPlayer.currentTime = resumeTime; } catch (e) {}
@@ -1391,9 +1445,28 @@ function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
         }
     };
 
+    // Auto-fallback if current stream fails to load or decoders fail
+    elements.videoPlayer.onerror = (e) => {
+        console.warn(`Stream playback error on ${stream.quality}, attempting fallback...`, e);
+        if (videoStallTimeout) {
+            clearTimeout(videoStallTimeout);
+            videoStallTimeout = null;
+        }
+        fallbackToNextSource();
+    };
+
+    // Safety timeout: If high-res stream stalls for > 7 seconds without playing, auto fallback to smoother quality
+    videoStallTimeout = setTimeout(() => {
+        if (!started && elements.playerModal.classList.contains("active")) {
+            console.warn(`Playback initial buffer stalled for ${stream.quality}, auto-falling back...`);
+            fallbackToNextSource();
+        }
+    }, 7000);
+
     // Start playing as soon as initial video buffer is ready
     elements.videoPlayer.oncanplay = triggerInstantPlay;
     elements.videoPlayer.onloadeddata = triggerInstantPlay;
+    elements.videoPlayer.onplaying = triggerInstantPlay;
     elements.videoPlayer.onloadedmetadata = () => {
         if (!started) triggerInstantPlay();
     };
@@ -1402,16 +1475,20 @@ function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
 function renderQualityOptions(streams) {
     elements.qualityOptionsList.innerHTML = "";
 
-    // Add Auto option
+    const isAutoActive = state.isAutoQuality !== false;
+
+    // Add Auto option (shows current auto-adaptive resolution)
     const autoBtn = document.createElement("button");
-    autoBtn.className = "option-btn" + (state.currentStream === streams[0] ? " active" : "");
-    autoBtn.innerHTML = `<span>Auto (Best: ${streams[0].quality})</span>${state.currentStream === streams[0] ? "<span>✓</span>" : ""}`;
+    autoBtn.className = "option-btn" + (isAutoActive ? " active" : "");
+    autoBtn.innerHTML = `<span>Auto (${state.currentStream ? state.currentStream.quality : "Adaptive"})</span>${isAutoActive ? "<span>✓</span>" : ""}`;
     autoBtn.addEventListener("click", () => {
-        switchQuality(streams[0]);
+        state.isAutoQuality = true;
+        const optimal = selectAdaptiveStream(streams);
+        switchQuality(optimal, true);
     });
     elements.qualityOptionsList.appendChild(autoBtn);
 
-    // List all distinct available qualities
+    // List all distinct available qualities sorted descending
     const uniqueQualities = [];
     const seen = new Set();
     streams.forEach((s) => {
@@ -1423,25 +1500,27 @@ function renderQualityOptions(streams) {
 
     uniqueQualities.forEach((s) => {
         const btn = document.createElement("button");
-        const isActive = state.currentStream.quality === s.quality;
+        const isActive = !isAutoActive && state.currentStream && state.currentStream.quality === s.quality;
         btn.className = "option-btn" + (isActive ? " active" : "");
         btn.innerHTML = `<span>${s.quality} (${s.format})</span>${isActive ? "<span>✓</span>" : ""}`;
         btn.addEventListener("click", () => {
-            switchQuality(s);
+            state.isAutoQuality = false;
+            switchQuality(s, false);
         });
         elements.qualityOptionsList.appendChild(btn);
     });
 }
 
-function switchQuality(stream) {
-    if (stream === state.currentStream) return;
+function switchQuality(stream, isAuto = false) {
+    if (stream === state.currentStream && isAuto === state.isAutoQuality) return;
     const currentTime = elements.videoPlayer.currentTime || 0;
     const wasPlaying = !elements.videoPlayer.paused;
 
     state.currentStream = stream;
+    state.isAutoQuality = isAuto;
     renderQualityOptions(state.availableStreams);
     renderSourceOptions(state.availableStreams);
-    showToast(`Video Quality: ${stream.quality}`, 1500);
+    showToast(isAuto ? `Quality: Auto (${stream.quality})` : `Video Quality: ${stream.quality}`, 1800);
 
     applyVideoStream(stream, currentTime, wasPlaying);
 }
@@ -1459,6 +1538,7 @@ function renderSourceOptions(streams) {
             const currentTime = elements.videoPlayer.currentTime || 0;
             const wasPlaying = !elements.videoPlayer.paused;
             state.currentStream = s;
+            state.isAutoQuality = false;
             renderQualityOptions(state.availableStreams);
             renderSourceOptions(state.availableStreams);
             showToast(`Switched to ${s.source_name || `Source ${idx + 1}`}`, 2000);
@@ -1470,11 +1550,23 @@ function renderSourceOptions(streams) {
 
 function fallbackToNextSource() {
     if (!state.availableStreams || state.availableStreams.length <= 1) return;
-    const currentIndex = state.availableStreams.indexOf(state.currentStream);
-    if (currentIndex >= 0 && currentIndex < state.availableStreams.length - 1) {
-        const nextStream = state.availableStreams[currentIndex + 1];
-        console.log(`Fallback: switching to ${nextStream.source_name || nextStream.quality}`);
-        showToast(`Source unavailable, auto-switching to ${nextStream.quality}...`, 2500);
+    
+    // Sort available streams by quality value descending to find the next lower resolution
+    const sortedStreams = [...state.availableStreams].sort((a, b) => (b.quality_value || 0) - (a.quality_value || 0));
+    const currentVal = state.currentStream ? (state.currentStream.quality_value || 0) : 9999;
+    
+    // Find next stream with lower quality value, or next index
+    let nextStream = sortedStreams.find(s => (s.quality_value || 0) < currentVal);
+    if (!nextStream) {
+        const currentIndex = state.availableStreams.indexOf(state.currentStream);
+        if (currentIndex >= 0 && currentIndex < state.availableStreams.length - 1) {
+            nextStream = state.availableStreams[currentIndex + 1];
+        }
+    }
+
+    if (nextStream && nextStream !== state.currentStream) {
+        console.log(`Smart Fallback: switching from ${state.currentStream ? state.currentStream.quality : "?"} to ${nextStream.quality}`);
+        showToast(`Network speed adjusting: playing in ${nextStream.quality}...`, 2500);
         const currentTime = elements.videoPlayer.currentTime || 0;
         state.currentStream = nextStream;
         renderQualityOptions(state.availableStreams);
