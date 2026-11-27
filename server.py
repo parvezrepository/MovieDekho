@@ -8,6 +8,7 @@ Advanced FastAPI backend providing:
 - Comprehensive Discovery Engine: Genre filtering, year filters, minimum ratings, recommendations, and cast.
 """
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -938,14 +939,14 @@ async def translate_vtt_to_bangla(raw_vtt_text: str) -> str:
         return "WEBVTT\n\n"
 
     cue_texts = [" ".join(c["text_lines"]) for c in cues]
-    translated_texts = []
-    batch_size = 50
+    batch_size = 75
+    sem = asyncio.Semaphore(10)
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        for i in range(0, len(cue_texts), batch_size):
-            batch = cue_texts[i : i + batch_size]
-            payload = "\n".join([f"[{idx}] {t}" for idx, t in enumerate(batch)])
+    batches = [cue_texts[i : i + batch_size] for i in range(0, len(cue_texts), batch_size)]
 
+    async def translate_single_batch(client: httpx.AsyncClient, batch: List[str]) -> List[str]:
+        payload = "\n".join([f"[{idx}] {t}" for idx, t in enumerate(batch)])
+        async with sem:
             try:
                 resp = await client.post(
                     "https://translate.googleapis.com/translate_a/single",
@@ -964,7 +965,6 @@ async def translate_vtt_to_bangla(raw_vtt_text: str) -> str:
 
                     line_map = {}
                     for t_line in translated_str.split("\n"):
-                        # Normalize Bengali digits back to ASCII 0-9
                         norm_line = t_line.translate(BENGALI_NUMERALS)
                         m = re.match(r"^\[(\d+)\]\s*(.*)", norm_line.strip())
                         if m:
@@ -973,13 +973,19 @@ async def translate_vtt_to_bangla(raw_vtt_text: str) -> str:
                             except ValueError:
                                 pass
 
-                    for idx in range(len(batch)):
-                        translated_texts.append(line_map.get(idx, batch[idx]))
+                    return [line_map.get(idx, batch[idx]) for idx in range(len(batch))]
                 else:
-                    translated_texts.extend(batch)
+                    return batch
             except Exception as e:
                 logger.warning(f"Batch translation error: {e}")
-                translated_texts.extend(batch)
+                return batch
+
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        batch_results = await asyncio.gather(*[translate_single_batch(client, b) for b in batches])
+
+    translated_texts = []
+    for res in batch_results:
+        translated_texts.extend(res)
 
     # Build clean WebVTT output
     vtt_output = [
