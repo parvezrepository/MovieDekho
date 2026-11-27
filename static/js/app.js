@@ -1385,8 +1385,6 @@ function closePlayer() {
     v.style.display = "block";
     elements.playerModal.classList.remove("active");
     elements.playerSettingsPanel.classList.remove("active");
-    const backdrop = document.getElementById("settingsBackdrop");
-    if (backdrop) backdrop.classList.remove("active");
     document.body.style.overflow = "";
     hidePlayerLoader();
 }
@@ -2137,11 +2135,7 @@ window.toggleFullscreen = toggleFullscreen;
 
 function toggleSettingsPanel() {
     const panel = elements.playerSettingsPanel;
-    const backdrop = document.getElementById("settingsBackdrop");
     const isActive = panel.classList.toggle("active");
-    if (backdrop) {
-        backdrop.classList.toggle("active", isActive);
-    }
     if (isActive) {
         // Ensure at least one section is active; default to quality if none active
         const activeSection = panel.querySelector(".settings-section.active");
@@ -2179,8 +2173,6 @@ document.addEventListener("click", (e) => {
     if (elements.playerSettingsPanel && elements.playerSettingsPanel.classList.contains("active")) {
         if (!e.target.closest("#playerSettingsPanel") && !e.target.closest("#settingsBtn")) {
             elements.playerSettingsPanel.classList.remove("active");
-            const backdrop = document.getElementById("settingsBackdrop");
-            if (backdrop) backdrop.classList.remove("active");
         }
     }
 });
