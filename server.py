@@ -899,6 +899,10 @@ async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None)
 # ---------------------------------------------------------------------------
 # SUBTITLE PROXY & REALTIME BANGLA WEBVTT CONVERTER
 # ---------------------------------------------------------------------------
+import pathlib
+
+SUBTITLE_CACHE_DIR = pathlib.Path("/tmp/parxstream_sub_cache")
+SUBTITLE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 SUBTITLE_CACHE: Dict[str, str] = {}
 BENGALI_NUMERALS = str.maketrans("০১২৩৪৫৬৭৮৯", "0123456789")
 
@@ -1006,8 +1010,10 @@ async def subtitle_proxy(url: str, lang: str = "en", target_lang: Optional[str] 
     """
     decoded_url = urllib.parse.unquote(url)
 
-    # Check cache for translated Bangla or standard subtitles
+    # Check memory or disk cache for instant zero-latency retrieval
     cache_key = f"{hashlib.md5(decoded_url.encode()).hexdigest()}_{target_lang or lang}"
+    cache_file = SUBTITLE_CACHE_DIR / f"{cache_key}.vtt"
+
     if cache_key in SUBTITLE_CACHE:
         return Response(
             content=SUBTITLE_CACHE[cache_key],
@@ -1017,6 +1023,21 @@ async def subtitle_proxy(url: str, lang: str = "en", target_lang: Optional[str] 
                 "Cache-Control": "public, max-age=86400",
             },
         )
+
+    if cache_file.exists():
+        try:
+            cached_text = cache_file.read_text(encoding="utf-8")
+            SUBTITLE_CACHE[cache_key] = cached_text
+            return Response(
+                content=cached_text,
+                media_type="text/vtt; charset=utf-8",
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "public, max-age=86400",
+                },
+            )
+        except Exception:
+            pass
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -1060,8 +1081,12 @@ async def subtitle_proxy(url: str, lang: str = "en", target_lang: Optional[str] 
 
                 vtt_content = "WEBVTT\n\n" + "\n".join(converted_lines)
 
-            # Store in cache
+            # Store in memory and persistent disk cache
             SUBTITLE_CACHE[cache_key] = vtt_content
+            try:
+                cache_file.write_text(vtt_content, encoding="utf-8")
+            except Exception:
+                pass
 
             return Response(
                 content=vtt_content,
