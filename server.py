@@ -432,16 +432,26 @@ async def resolve_tmdb_to_moviebox(
 
         import datetime
         today_str = datetime.date.today().isoformat()
-        # Prefer candidates that have an established release date in the past
-        released_candidates = [c for c in candidates if (c.get("release_date") or "") and (c.get("release_date") or "") <= today_str]
-        candidate_pool = released_candidates if released_candidates else candidates
+        
+        # Filter out candidates with future release dates, but KEEP candidates with empty/null release dates
+        valid_candidates = [c for c in candidates if not (c.get("release_date") and str(c.get("release_date")) > today_str)]
+        candidate_pool = valid_candidates if valid_candidates else candidates
 
+        # Score candidates: prefer detail_path, then matching year, then closest title
+        def _candidate_score(cand):
+            score = 0
+            if cand.get("detail_path"):
+                score += 10
+            c_rel = str(cand.get("release_date") or "")
+            if year and c_rel.startswith(str(year)):
+                score += 5
+            c_title = (cand.get("title") or "").lower()
+            if clean_lower in c_title or c_title in clean_lower:
+                score += 3
+            return score
+
+        candidate_pool = sorted(candidate_pool, key=_candidate_score, reverse=True)
         best_id = candidate_pool[0].get("subject_id")
-        if year:
-            for c in candidate_pool:
-                if (c.get("release_date") or "").startswith(str(year)):
-                    best_id = c.get("subject_id")
-                    break
 
         if best_id:
             TMDB_SUBJECT_CACHE[cache_key] = best_id
@@ -706,6 +716,40 @@ async def get_streams(
 
     try:
         raw_streams = engine.get_streams(subject_id, season=se, episode=ep, detail_path=detail_path)
+
+        # Resilient series fallback: if se==0 and ep==0 returned 0 streams, test season=1, episode=1
+        if not raw_streams and se == 0 and ep == 0:
+            retry_streams = engine.get_streams(subject_id, season=1, episode=1, detail_path=detail_path)
+            if retry_streams:
+                raw_streams = retry_streams
+                se = 1
+                ep = 1
+
+        # Resilient candidate fallback: if still 0 streams, look for working sister entries in MovieBox
+        if not raw_streams:
+            try:
+                det = engine.get_details(subject_id)
+                det_title = det.get("title")
+                if det_title:
+                    clean_t = re.sub(r"\[.*?\]|\(.*?\)", "", det_title).strip()
+                    alt_candidates = engine.search(clean_t, page=1, per_page=6)
+                    for cand in alt_candidates:
+                        cand_id = cand.get("subject_id")
+                        if cand_id and str(cand_id) != str(subject_id):
+                            cand_dp = cand.get("detail_path")
+                            alt_st = engine.get_streams(cand_id, season=se, episode=ep, detail_path=cand_dp)
+                            if not alt_st and se == 0 and ep == 0:
+                                alt_st = engine.get_streams(cand_id, season=1, episode=1, detail_path=cand_dp)
+                                if alt_st:
+                                    se = 1
+                                    ep = 1
+                            if alt_st:
+                                raw_streams = alt_st
+                                subject_id = cand_id
+                                break
+            except Exception as ex_alt:
+                logger.debug(f"Alternate stream candidate check skipped: {ex_alt}")
+
         formatted_streams = []
 
         # Sort: MP4 preferred for universal browser support, then quality descending
@@ -777,6 +821,8 @@ async def get_captions(
     """
     try:
         raw_subs = engine.get_subtitles(subject_id, stream_id=stream_id, season=se, episode=ep)
+        if not raw_subs and se == 0 and ep == 0:
+            raw_subs = engine.get_subtitles(subject_id, stream_id=stream_id, season=1, episode=1)
         formatted_subs = []
 
         for s in raw_subs:

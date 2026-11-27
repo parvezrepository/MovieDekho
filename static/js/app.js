@@ -416,7 +416,7 @@ function createMediaCard(item) {
     // Hover pre-warm stream resolution cache for instantaneous playback
     card.addEventListener("mouseenter", () => {
         if (item.subject_id) {
-            fetch(`/api/streams/${item.subject_id}`).catch(() => {});
+            fetch(`/api/streams/${item.subject_id}`).catch(() => { });
         }
     }, { once: true });
 
@@ -1248,14 +1248,26 @@ async function openPlayer(item) {
     if (!item) return;
     state.currentMediaItem = item;
 
-    // Direct routing for upcoming titles -> Play official HD YouTube trailer
-    if (isItemUpcoming(item)) {
+    // Direct routing for items explicitly from upcoming section -> Play official HD YouTube trailer
+    if (item.category === "upcoming") {
         playOfficialTrailer(item);
         return;
     }
 
     let subjectId = item.subject_id;
     let title = item.title;
+
+    // Detect immediately if the item is a series from item attributes
+    const isSeriesItem = Boolean(
+        item.media_type === "tv" ||
+        item.type === "Series" ||
+        item.subject_type === 2 ||
+        item.category === "series" ||
+        item.category === "anime"
+    );
+    state.isSeries = isSeriesItem;
+    state.currentSeason = isSeriesItem ? (item.season || 1) : 0;
+    state.currentEpisode = isSeriesItem ? (item.episode || 1) : 0;
 
     // Resolve subject_id if starting from TMDB item
     if (!subjectId) {
@@ -1294,9 +1306,9 @@ async function openPlayer(item) {
 
         if (!subjectId) {
             hidePlayerLoader();
-            elements.playerModal.classList.remove("active");
-            document.body.style.overflow = "";
-            showToast(`Stream source is preparing "${title}". Please choose another title from Home or Search!`, 3500);
+            console.log(`Stream ID not in catalog for "${title}", falling back to official trailer`);
+            playOfficialTrailer(item);
+            showToast(`Streaming rip for "${title}" is preparing. Playing Official HD Trailer!`, 4000);
             return;
         }
     } else {
@@ -1305,8 +1317,10 @@ async function openPlayer(item) {
 
     state.currentSubjectId = subjectId;
     state.currentTitle = title;
-    state.currentSeason = 1;
-    state.currentEpisode = 1;
+    if (state.isSeries) {
+        state.currentSeason = state.currentSeason || 1;
+        state.currentEpisode = state.currentEpisode || 1;
+    }
 
     await loadMediaForPlayer(subjectId);
 }
@@ -1393,8 +1407,8 @@ async function loadMediaForPlayer(subjectId) {
     showPlayerLoader("Connecting to high-speed stream...");
 
     try {
-        const curSeason = state.isSeries ? state.currentSeason : 0;
-        const curEp = state.isSeries ? state.currentEpisode : 0;
+        const curSeason = state.isSeries ? (state.currentSeason || 1) : 0;
+        const curEp = state.isSeries ? (state.currentEpisode || 1) : 0;
 
         // 1. PRIORITY #1: Load stream sources & captions IMMEDIATELY in parallel!
         const streamPromise = loadStreamsAndCaptions(subjectId, curSeason, curEp);
@@ -1403,8 +1417,11 @@ async function loadMediaForPlayer(subjectId) {
         const detailPromise = fetch(`/api/detail/${subjectId}`)
             .then((r) => r.json())
             .then((details) => {
-                state.isSeries = details.subject_type === 2 || details.type === "Series";
+                const wasSeries = state.isSeries;
+                state.isSeries = details.subject_type === 2 || details.type === "Series" || wasSeries;
                 if (state.isSeries) {
+                    if (!state.currentSeason || state.currentSeason === 0) state.currentSeason = 1;
+                    if (!state.currentEpisode || state.currentEpisode === 0) state.currentEpisode = 1;
                     elements.seriesControls.style.display = "block";
                     elements.playerEpisodeTag.style.display = "inline-block";
                     elements.prevEpPlayerBtn.style.display = "flex";
@@ -1417,7 +1434,7 @@ async function loadMediaForPlayer(subjectId) {
                     elements.prevEpPlayerBtn.style.display = "none";
                     elements.nextEpPlayerBtn.style.display = "none";
                 }
-                loadAudioTracks(subjectId, curSeason, curEp);
+                loadAudioTracks(subjectId, state.currentSeason || 1, state.currentEpisode || 1);
             })
             .catch((err) => console.warn("Background detail load warning:", err));
 
@@ -1491,11 +1508,23 @@ async function loadStreamsAndCaptions(subjectId, season = 0, episode = 0, resume
         state.availableStreams = streamData.streams || [];
         state.availableCaptions = captionData.captions || [];
 
+        // If backend resolved it as a series (season 1 / episode 1)
+        if (streamData.season && streamData.season > 0) {
+            state.isSeries = true;
+            state.currentSeason = streamData.season;
+            state.currentEpisode = streamData.episode;
+            if (elements.seriesControls) elements.seriesControls.style.display = "block";
+            if (elements.playerEpisodeTag) {
+                elements.playerEpisodeTag.style.display = "inline-block";
+                elements.playerEpisodeTag.textContent = `S${state.currentSeason} : E${state.currentEpisode}`;
+            }
+        }
+
         if (state.availableStreams.length === 0) {
             hidePlayerLoader();
-            elements.playerModal.classList.remove("active");
-            document.body.style.overflow = "";
-            showToast(`"${state.currentTitle || 'This movie'}" is not yet released on digital streaming/OTT. Please choose any released movie from Home or Search!`, 4500);
+            console.log(`No direct stream for "${state.currentTitle}", falling back to official trailer`);
+            playOfficialTrailer(state.currentMediaItem || { title: state.currentTitle });
+            showToast(`Streaming rip for "${state.currentTitle || 'This title'}" is preparing. Playing Official HD Trailer!`, 4000);
             return;
         }
 
@@ -1547,7 +1576,7 @@ function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
         }
         hidePlayerLoader();
         if (resumeTime > 0) {
-            try { elements.videoPlayer.currentTime = resumeTime; } catch (e) {}
+            try { elements.videoPlayer.currentTime = resumeTime; } catch (e) { }
         }
         if (autoPlay) {
             elements.videoPlayer.play().catch((e) => {
@@ -1674,11 +1703,11 @@ function fallbackToNextSource() {
         return;
     }
     if (!state.availableStreams || state.availableStreams.length <= 1) return;
-    
+
     // Sort available streams by quality value descending to find the next lower resolution
     const sortedStreams = [...state.availableStreams].sort((a, b) => (b.quality_value || 0) - (a.quality_value || 0));
     const currentVal = state.currentStream ? (state.currentStream.quality_value || 0) : 9999;
-    
+
     // Find next stream with lower quality value, or next index
     let nextStream = sortedStreams.find(s => (s.quality_value || 0) < currentVal);
     if (!nextStream) {
@@ -1940,7 +1969,7 @@ function applySubtitleStylesToDom() {
 function togglePlay() {
     const v = elements.videoPlayer;
     if (v.paused) {
-        v.play().catch(() => {});
+        v.play().catch(() => { });
     } else {
         v.pause();
     }
@@ -1988,7 +2017,7 @@ function onVideoProgress() {
         const bufferedEnd = v.buffered.end(v.buffered.length - 1);
         const percent = (bufferedEnd / v.duration) * 100;
         elements.progressBuffered.style.width = `${percent}%`;
-    } catch (e) {}
+    } catch (e) { }
 }
 
 function onScrubberClick(e) {
@@ -2053,7 +2082,7 @@ function setPlaybackSpeed(speed) {
 
 function togglePiP() {
     if (document.pictureInPictureElement) {
-        document.exitPictureInPicture().catch(() => {});
+        document.exitPictureInPicture().catch(() => { });
     } else if (document.pictureInPictureEnabled) {
         elements.videoPlayer.requestPictureInPicture().catch((err) => {
             showToast("Picture-in-Picture not supported: " + err.message, 2000);
