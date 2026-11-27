@@ -91,15 +91,48 @@ async def debug_render(q: str = "Inception", subject_id: str = "9774865678267524
     except Exception as e:
         result["play_info_error"] = f"{type(e).__name__}: {e}"
 
-    # 4. Direct httpx test to api3.aoneroom.com
-    try:
-        headers = build_auth_headers("POST", f"{NATIVE_API_BASE}/wefeed-mobile-bff/subject-api/search", token=engine.bearer_token)
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(f"{NATIVE_API_BASE}/wefeed-mobile-bff/subject-api/search", headers=headers, json={"keyword": q, "page": 1, "perPage": 5})
-            result["direct_httpx_status"] = r.status_code
-            result["direct_httpx_text"] = r.text[:300]
-    except Exception as e:
-        result["direct_httpx_error"] = f"{type(e).__name__}: {e}"
+    # 4. Direct httpx test to api3.aoneroom.com with spoofed Geo/IP headers
+    ip_spoof_attempts = {}
+    sample_asian_ips = [
+        ("103.230.106.1", "BD"), # Bangladesh
+        ("103.25.130.1", "IN"),  # India
+        ("114.124.0.1", "ID"),   # Indonesia
+        ("125.160.0.1", "PH"),   # Philippines
+    ]
+    for ip, country in sample_asian_ips:
+        try:
+            custom_headers = build_auth_headers("POST", f"{NATIVE_API_BASE}/wefeed-mobile-bff/subject-api/search", token=engine.bearer_token)
+            custom_headers["x-forwarded-for"] = ip
+            custom_headers["cf-connecting-ip"] = ip
+            custom_headers["x-real-ip"] = ip
+            custom_headers["client-ip"] = ip
+            custom_headers["x-client-ip"] = ip
+            custom_headers["x-country-code"] = country
+            custom_headers["x-geo-country"] = country
+            async with httpx.AsyncClient(timeout=8) as client:
+                r = await client.post(
+                    f"{NATIVE_API_BASE}/wefeed-mobile-bff/subject-api/search",
+                    headers=custom_headers,
+                    json={"keyword": q, "page": 1, "perPage": 5}
+                )
+                ip_spoof_attempts[f"{country}_{ip}"] = {"status": r.status_code, "text": r.text[:150]}
+        except Exception as e:
+            ip_spoof_attempts[f"{country}_{ip}"] = {"error": str(e)}
+
+    result["ip_spoof_attempts"] = ip_spoof_attempts
+
+    # 5. Test Web domains from Render
+    web_attempts = {}
+    from engine import WEB_DOMAINS
+    for domain in WEB_DOMAINS[:3]:
+        try:
+            play_url = f"{domain}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se=0&ep=0&detailPath=&streamSignType=1"
+            async with httpx.AsyncClient(timeout=8) as client:
+                r = await client.get(play_url, headers={"User-Agent": "Mozilla/5.0", "Authorization": f"Bearer {engine.bearer_token}"})
+                web_attempts[domain] = {"status": r.status_code, "text": r.text[:150]}
+        except Exception as e:
+            web_attempts[domain] = {"error": str(e)}
+    result["web_attempts"] = web_attempts
         
     return result
 
