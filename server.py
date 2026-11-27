@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from engine import MovieBoxEngine
+from engine import MovieBoxEngine, build_auth_headers, NATIVE_API_BASE
 from tmdb_client import tmdb
 
 # Configure logger
@@ -55,6 +55,53 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # In-memory mapping cache from TMDB ID/Title to MovieBox Subject ID
 TMDB_SUBJECT_CACHE: Dict[str, str] = {}
+
+
+@app.get("/api/debug-render")
+async def debug_render(q: str = "Inception", subject_id: str = "977486567826752424"):
+    import traceback
+    result = {"q": q, "subject_id": subject_id}
+    
+    # Check curl_cffi vs httpx
+    result["session_type"] = type(engine.session).__name__
+    
+    # 1. Test bootstrap
+    try:
+        t = engine.bootstrap_token()
+        result["token_preview"] = t[:20] if t else None
+    except Exception as e:
+        result["bootstrap_error"] = f"{type(e).__name__}: {e}"
+        result["bootstrap_trace"] = traceback.format_exc()
+        
+    # 2. Test direct search request with raw status code
+    try:
+        payload = {"keyword": q, "page": 1, "perPage": 5}
+        url = "/wefeed-mobile-bff/subject-api/search"
+        raw = engine.api_request("POST", url, body_dict=payload)
+        result["raw_search_response"] = raw
+    except Exception as e:
+        result["api_request_error"] = f"{type(e).__name__}: {e}"
+        result["api_request_trace"] = traceback.format_exc()
+        
+    # 3. Test play-info request with raw status code
+    try:
+        native_url = f"/wefeed-mobile-bff/subject-api/play-info?subjectId={subject_id}&se=0&ep=0"
+        raw_play = engine.api_request("GET", native_url)
+        result["raw_play_response"] = raw_play
+    except Exception as e:
+        result["play_info_error"] = f"{type(e).__name__}: {e}"
+
+    # 4. Direct httpx test to api3.aoneroom.com
+    try:
+        headers = build_auth_headers("POST", f"{NATIVE_API_BASE}/wefeed-mobile-bff/subject-api/search", token=engine.bearer_token)
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(f"{NATIVE_API_BASE}/wefeed-mobile-bff/subject-api/search", headers=headers, json={"keyword": q, "page": 1, "perPage": 5})
+            result["direct_httpx_status"] = r.status_code
+            result["direct_httpx_text"] = r.text[:300]
+    except Exception as e:
+        result["direct_httpx_error"] = f"{type(e).__name__}: {e}"
+        
+    return result
 
 
 # ---------------------------------------------------------------------------
