@@ -88,6 +88,43 @@ class TMDBClient:
             logger.error(f"Error fetching TMDB trending: {e}")
         return []
 
+    def get_upcoming_movies(self, page: int = 1) -> List[Dict[str, Any]]:
+        """Fetches anticipated upcoming movies with future release dates and official trailers."""
+        url = f"{TMDB_BASE_URL}/movie/upcoming"
+        try:
+            resp = self.client.get(
+                url,
+                params={"api_key": self.api_key, "page": page, "language": "en-US"},
+            )
+            if resp.status_code == 200:
+                results = resp.json().get("results", [])
+                items = []
+                for r in results:
+                    title = r.get("title") or "Upcoming Title"
+                    poster_path = r.get("poster_path")
+                    backdrop_path = r.get("backdrop_path")
+                    rel_date = r.get("release_date") or ""
+                    items.append({
+                        "tmdb_id": r.get("id"),
+                        "title": title,
+                        "media_type": "movie",
+                        "type": "Movie",
+                        "category": "upcoming",
+                        "overview": r.get("overview", ""),
+                        "rating": round(r.get("vote_average", 0), 1),
+                        "year": rel_date[:4] if rel_date else "2026",
+                        "release_date": rel_date,
+                        "is_upcoming": True,
+                        "poster": f"{IMG_BASE_W500}{poster_path}" if poster_path else None,
+                        "backdrop": f"{IMG_BASE_W1280}{backdrop_path}" if backdrop_path else None,
+                        "backdrop_original": f"{IMG_BASE_ORIGINAL}{backdrop_path}" if backdrop_path else None,
+                        "genre_ids": r.get("genre_ids", []),
+                    })
+                return items
+        except Exception as e:
+            logger.error(f"Error fetching upcoming movies: {e}")
+        return []
+
     def discover(
         self,
         media_type: str = "movie",

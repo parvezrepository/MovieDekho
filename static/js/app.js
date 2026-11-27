@@ -107,6 +107,9 @@ const elements = {
     animeGrid: document.getElementById("animeGrid"),
     animeSection: document.getElementById("animeSection"),
     navAnime: document.getElementById("navAnime"),
+    upcomingGrid: document.getElementById("upcomingGrid"),
+    upcomingSection: document.getElementById("upcomingSection"),
+    navUpcoming: document.getElementById("navUpcoming"),
     catalogInfiniteLoader: document.getElementById("catalogInfiniteLoader"),
     catalogInfiniteSentinel: document.getElementById("catalogInfiniteSentinel"),
 
@@ -292,6 +295,7 @@ async function loadHomeFeed() {
         if (data.movies && data.movies.length > 0) renderGrid(elements.moviesGrid, data.movies);
         if (data.series && data.series.length > 0) renderGrid(elements.seriesGrid, data.series);
         if (data.anime && data.anime.length > 0) renderGrid(elements.animeGrid, data.anime);
+        if (data.upcoming && data.upcoming.length > 0 && elements.upcomingGrid) renderGrid(elements.upcomingGrid, data.upcoming);
     } catch (err) {
         console.error("Home feed error:", err);
         showToast("Connecting to streaming index...", 2000);
@@ -300,7 +304,11 @@ async function loadHomeFeed() {
 }
 
 function isItemUpcoming(item) {
-    return false;
+    if (!item) return false;
+    if (item.is_upcoming === true || item.category === "upcoming") return true;
+    const rel = item.release_date || item.first_air_date || "";
+    const today = new Date().toISOString().split("T")[0];
+    return Boolean(rel && rel > today);
 }
 
 function renderHero(item) {
@@ -359,14 +367,23 @@ function createMediaCard(item) {
     const rating = item.rating || item.imdb_rating || "8.0";
     const year = item.year || (item.release_date ? item.release_date.slice(0, 4) : "2024");
     const type = item.type || (item.media_type === "tv" ? "Series" : "Movie");
+    const upcoming = isItemUpcoming(item);
+
+    const topBadge = upcoming
+        ? `<span class="badge badge-accent" style="font-size: 10px; padding: 2px 7px; background: linear-gradient(135deg, #7928ca, #ff007f); color: #fff; font-weight: 700;">🔮 UPCOMING</span>`
+        : `<span class="badge badge-accent" style="font-size: 10px; padding: 2px 6px;">1080p</span>`;
+
+    const ratingBadge = upcoming
+        ? `<div class="card-badge-rating" style="background: rgba(121, 40, 202, 0.9); color: #fff;">🎬 Trailer</div>`
+        : `<div class="card-badge-rating">★ ${rating}</div>`;
 
     card.innerHTML = `
         <div class="card-poster-wrap">
             <img class="card-poster" src="${poster}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&q=80'">
             <div class="card-badge-top">
-                <span class="badge badge-accent" style="font-size: 10px; padding: 2px 6px;">1080p</span>
+                ${topBadge}
             </div>
-            <div class="card-badge-rating">★ ${rating}</div>
+            ${ratingBadge}
             <div class="card-play-overlay">
                 <div class="card-play-icon">
                     <svg viewBox="0 0 24 24" width="24" height="24" fill="#ffffff">
@@ -704,7 +721,7 @@ function navigateTo(tab, event) {
     if (event && event.target) {
         event.target.classList.add("active");
     } else {
-        const btnId = tab === "home" ? "navHome" : (tab === "movies" ? "navMovies" : (tab === "series" ? "navSeries" : "navAnime"));
+        const btnId = tab === "home" ? "navHome" : (tab === "movies" ? "navMovies" : (tab === "series" ? "navSeries" : (tab === "anime" ? "navAnime" : "navUpcoming")));
         const btn = document.getElementById(btnId);
         if (btn) btn.classList.add("active");
     }
@@ -713,6 +730,7 @@ function navigateTo(tab, event) {
     const moviesSec = document.getElementById("moviesSection");
     const seriesSec = document.getElementById("seriesSection");
     const animeSec = document.getElementById("animeSection");
+    const upcomingSec = document.getElementById("upcomingSection");
 
     clearSearch();
 
@@ -725,25 +743,36 @@ function navigateTo(tab, event) {
         if (moviesSec) moviesSec.style.display = "block";
         if (seriesSec) seriesSec.style.display = "block";
         if (animeSec) animeSec.style.display = "block";
+        if (upcomingSec) upcomingSec.style.display = "block";
         window.scrollTo({ top: 0, behavior: "smooth" });
     } else if (tab === "movies") {
         if (trendingSec) trendingSec.style.display = "none";
         if (moviesSec) moviesSec.style.display = "block";
         if (seriesSec) seriesSec.style.display = "none";
         if (animeSec) animeSec.style.display = "none";
+        if (upcomingSec) upcomingSec.style.display = "none";
         moviesSec.scrollIntoView({ behavior: "smooth" });
     } else if (tab === "series") {
         if (trendingSec) trendingSec.style.display = "none";
         if (moviesSec) moviesSec.style.display = "none";
         if (seriesSec) seriesSec.style.display = "block";
         if (animeSec) animeSec.style.display = "none";
+        if (upcomingSec) upcomingSec.style.display = "none";
         seriesSec.scrollIntoView({ behavior: "smooth" });
     } else if (tab === "anime") {
         if (trendingSec) trendingSec.style.display = "none";
         if (moviesSec) moviesSec.style.display = "none";
         if (seriesSec) seriesSec.style.display = "none";
         if (animeSec) animeSec.style.display = "block";
+        if (upcomingSec) upcomingSec.style.display = "none";
         animeSec.scrollIntoView({ behavior: "smooth" });
+    } else if (tab === "upcoming") {
+        if (trendingSec) trendingSec.style.display = "none";
+        if (moviesSec) moviesSec.style.display = "none";
+        if (seriesSec) seriesSec.style.display = "none";
+        if (animeSec) animeSec.style.display = "none";
+        if (upcomingSec) upcomingSec.style.display = "block";
+        upcomingSec.scrollIntoView({ behavior: "smooth" });
     }
 }
 
@@ -808,6 +837,16 @@ async function loadNextCatalogPage() {
                 state.catalogHasMore = false;
             } else {
                 appendCardsToGrid(elements.animeGrid, results);
+            }
+        } else if (state.activeTab === "upcoming") {
+            const resp = await fetch(`/api/upcoming?page=${nextPage}`);
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+            const results = data.results || [];
+            if (results.length === 0) {
+                state.catalogHasMore = false;
+            } else {
+                appendCardsToGrid(elements.upcomingGrid, results);
             }
         } else if (state.activeTab === "filter" && state.activeFilterParams) {
             let url = `/api/discover?page=${nextPage}&${state.activeFilterParams}`;
@@ -928,11 +967,13 @@ async function openMediaDetails(item) {
     }
 
     // Set initial clean watch action
+    const isUpInitial = isItemUpcoming(item);
     if (elements.detailWatchBtnText) {
-        elements.detailWatchBtnText.textContent = "Watch Movie / Series";
+        elements.detailWatchBtnText.textContent = isUpInitial ? "🎬 Watch Official Trailer" : "Watch Movie / Series";
     }
     if (elements.detailWatchBtn) {
-        elements.detailWatchBtn.classList.remove("btn-trailer-glow");
+        if (isUpInitial) elements.detailWatchBtn.classList.add("btn-trailer-glow");
+        else elements.detailWatchBtn.classList.remove("btn-trailer-glow");
     }
 
     // Initialize recommendation pagination state
@@ -1018,8 +1059,14 @@ async function openMediaDetails(item) {
                 }
             }
 
-            if (elements.detailWatchBtnText) elements.detailWatchBtnText.textContent = "Watch Movie / Series";
-            if (elements.detailWatchBtn) elements.detailWatchBtn.classList.remove("btn-trailer-glow");
+            const isUpEnriched = isItemUpcoming(item) || details.is_upcoming;
+            if (elements.detailWatchBtnText) {
+                elements.detailWatchBtnText.textContent = isUpEnriched ? "🎬 Watch Official Trailer" : "Watch Movie / Series";
+            }
+            if (elements.detailWatchBtn) {
+                if (isUpEnriched) elements.detailWatchBtn.classList.add("btn-trailer-glow");
+                else elements.detailWatchBtn.classList.remove("btn-trailer-glow");
+            }
         }
     } catch (err) {
         console.error("Detail enrich error:", err);
@@ -1201,6 +1248,12 @@ async function openPlayer(item) {
     if (!item) return;
     state.currentMediaItem = item;
 
+    // Direct routing for upcoming titles -> Play official HD YouTube trailer
+    if (isItemUpcoming(item)) {
+        playOfficialTrailer(item);
+        return;
+    }
+
     let subjectId = item.subject_id;
     let title = item.title;
 
@@ -1258,6 +1311,59 @@ async function openPlayer(item) {
     await loadMediaForPlayer(subjectId);
 }
 
+function playOfficialTrailer(item) {
+    const title = item.title || "Upcoming Cinema";
+    openPlayerModal(`${title} (Official Trailer)`);
+    elements.playerQualityTag.textContent = "Trailer HD";
+    elements.playerSourceTag.textContent = "YouTube Official";
+    elements.playerAudioTag.textContent = "Original Audio";
+    elements.playerSubTag.textContent = "Subtitles Off";
+    elements.seriesControls.style.display = "none";
+    elements.playerEpisodeTag.style.display = "none";
+    elements.prevEpPlayerBtn.style.display = "none";
+    elements.nextEpPlayerBtn.style.display = "none";
+
+    elements.videoPlayer.pause();
+    elements.videoPlayer.style.display = "none";
+    showPlayerLoader(`Resolving official HD trailer for "${title}"...`);
+
+    const tmdbId = item.tmdb_id || "";
+    fetch(`/api/trailer?tmdb_id=${tmdbId}&title=${encodeURIComponent(title)}`)
+        .then((r) => {
+            if (!r.ok) throw new Error("Trailer unavailable");
+            return r.json();
+        })
+        .then((tr) => {
+            hidePlayerLoader();
+            const ytKey = tr.key;
+            if (!ytKey) throw new Error("Empty trailer key");
+            let container = document.getElementById("trailerEmbedContainer");
+            if (!container) {
+                container = document.createElement("div");
+                container.id = "trailerEmbedContainer";
+                container.className = "trailer-container";
+                elements.videoContainer.appendChild(container);
+            }
+            container.style.display = "block";
+            container.innerHTML = `
+                <iframe class="trailer-frame"
+                    src="https://www.youtube-nocookie.com/embed/${ytKey}?autoplay=1&rel=0&modestbranding=1&playsinline=1"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowfullscreen>
+                </iframe>
+            `;
+            showToast(`🎬 Playing Official Trailer for "${title}"`, 3500);
+        })
+        .catch((err) => {
+            console.warn("Trailer fetch fallback:", err);
+            hidePlayerLoader();
+            elements.videoPlayer.style.display = "block";
+            elements.playerModal.classList.remove("active");
+            document.body.style.overflow = "";
+            showToast(`Official trailer for "${title}" is coming soon!`, 3500);
+        });
+}
+
 function openPlayerModal(title) {
     elements.playerTitle.textContent = title || "Now Playing";
     elements.playerModal.classList.add("active");
@@ -1271,6 +1377,12 @@ function closePlayer() {
     v.pause();
     v.removeAttribute("src");
     v.load();
+    const trContainer = document.getElementById("trailerEmbedContainer");
+    if (trContainer) {
+        trContainer.innerHTML = "";
+        trContainer.style.display = "none";
+    }
+    v.style.display = "block";
     elements.playerModal.classList.remove("active");
     elements.playerSettingsPanel.classList.remove("active");
     const backdrop = document.getElementById("settingsBackdrop");

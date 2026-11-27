@@ -230,6 +230,13 @@ async def get_home_feed():
         logger.error(f"Failed to fetch anime: {e}")
         anime_combined = []
 
+    # 5. Upcoming Blockbusters & Anticipated Cinema (With Official HD Trailers)
+    try:
+        upcoming_movies = tmdb.get_upcoming_movies(page=1)
+    except Exception as e:
+        logger.error(f"Failed to fetch upcoming movies: {e}")
+        upcoming_movies = []
+
     # Pick a stellar released title with backdrop for hero banner
     featured = None
     for candidate in (trending + popular_movies):
@@ -247,7 +254,26 @@ async def get_home_feed():
         "movies": popular_movies[:15],
         "series": popular_series[:15],
         "anime": anime_combined[:15],
+        "upcoming": upcoming_movies[:15],
     }
+
+
+@app.get("/api/upcoming")
+async def get_upcoming_catalog(page: int = 1):
+    """
+    Returns paginated upcoming cinema titles and official trailers.
+    """
+    safe_page = max(1, page)
+    try:
+        items = tmdb.get_upcoming_movies(page=safe_page)
+        return {
+            "page": safe_page,
+            "results": items,
+            "has_more": len(items) > 0,
+        }
+    except Exception as e:
+        logger.error(f"Upcoming catalog error: {e}")
+        return {"page": safe_page, "results": [], "has_more": False}
 
 
 @app.get("/api/anime")

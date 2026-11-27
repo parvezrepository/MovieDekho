@@ -13,7 +13,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=7.2">
+    <link rel="stylesheet" href="/static/css/style.css?v=7.3">
 </head>
 
 <body>
@@ -53,6 +53,7 @@
                 <button class="nav-link" id="navMovies" onclick="navigateTo('movies', event)">Movies</button>
                 <button class="nav-link" id="navSeries" onclick="navigateTo('series', event)">TV Series</button>
                 <button class="nav-link" id="navAnime" onclick="navigateTo('anime', event)">⚡ Anime & Cartoon</button>
+                <button class="nav-link" id="navUpcoming" onclick="navigateTo('upcoming', event)">🔮 Upcoming</button>
                 <button class="nav-link" onclick="toggleDiscoverFilters(event)">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
                         style="margin-right: 4px;">
@@ -200,6 +201,17 @@
                 <p class="section-subtitle">Top popular animated series, anime episodes & animated movies</p>
             </div>
             <div id="animeGrid" class="media-grid"></div>
+        </section>
+
+        <!-- Upcoming Cinema & Official Trailers Section -->
+        <section id="upcomingSection" class="catalog-section">
+            <div class="section-header">
+                <div class="section-title-wrap">
+                    <h2 class="section-title">🔮 Upcoming Cinema & Official Trailers</h2>
+                    <span class="badge badge-accent" style="background: linear-gradient(135deg, #7928ca, #ff007f); color: #fff; margin-left: 8px;">Coming Soon to Theaters & OTT</span>
+                </div>
+            </div>
+            <div id="upcomingGrid" class="media-grid"></div>
         </section>
 
         <!-- Global Infinite Scroll Loader & Sentinel -->
@@ -627,7 +639,7 @@
     </a>
 
     <!-- App Script -->
-    <script src="/static/js/app.js?v=7.2"></script>
+    <script src="/static/js/app.js?v=7.3"></script>
 </body>
 
 </html>
