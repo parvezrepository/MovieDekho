@@ -1445,23 +1445,30 @@ function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
         }
     };
 
-    // Auto-fallback if current stream fails to load or decoders fail
+    // Auto-fallback ONLY when in Auto mode; if user manually selected quality, respect user's choice!
     elements.videoPlayer.onerror = (e) => {
-        console.warn(`Stream playback error on ${stream.quality}, attempting fallback...`, e);
+        console.warn(`Stream playback error on ${stream.quality}`, e);
         if (videoStallTimeout) {
             clearTimeout(videoStallTimeout);
             videoStallTimeout = null;
         }
-        fallbackToNextSource();
+        if (state.isAutoQuality !== false) {
+            fallbackToNextSource();
+        } else {
+            hidePlayerLoader();
+            showToast(`Cannot play ${stream.quality}. Please select another quality or Auto.`, 3500);
+        }
     };
 
-    // Safety timeout: If high-res stream stalls for > 7 seconds without playing, auto fallback to smoother quality
-    videoStallTimeout = setTimeout(() => {
-        if (!started && elements.playerModal.classList.contains("active")) {
-            console.warn(`Playback initial buffer stalled for ${stream.quality}, auto-falling back...`);
-            fallbackToNextSource();
-        }
-    }, 7000);
+    // Safety timeout ONLY in Auto mode: If stream stalls for > 8 seconds without playing, auto fallback
+    if (state.isAutoQuality !== false) {
+        videoStallTimeout = setTimeout(() => {
+            if (!started && elements.playerModal.classList.contains("active") && state.isAutoQuality !== false) {
+                console.warn(`Playback initial buffer stalled for ${stream.quality}, auto-falling back...`);
+                fallbackToNextSource();
+            }
+        }, 8000);
+    }
 
     // Start playing as soon as initial video buffer is ready
     elements.videoPlayer.oncanplay = triggerInstantPlay;
@@ -1549,6 +1556,11 @@ function renderSourceOptions(streams) {
 }
 
 function fallbackToNextSource() {
+    // If the user manually chose a quality, strictly respect their choice! Never auto-switch.
+    if (state.isAutoQuality === false) {
+        console.log("Manual quality locked by user. Auto fallback disabled.");
+        return;
+    }
     if (!state.availableStreams || state.availableStreams.length <= 1) return;
     
     // Sort available streams by quality value descending to find the next lower resolution
