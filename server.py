@@ -89,6 +89,9 @@ TMDB_SUBJECT_CACHE: Dict[str, str] = {
     "family guy": "1849501827495018274",
 }
 
+# Realtime stream resolution cache for 0ms instant playback
+STREAM_CACHE: Dict[str, Dict[str, Any]] = {}
+
 
 # ---------------------------------------------------------------------------
 # ROOT & DASHBOARD
@@ -655,7 +658,12 @@ async def get_streams(
     Resolves available sources (Web CDN, Native Mobile CDN, mirrors)
     and formats (MP4, DASH) with real supported resolutions (1080p, 720p, 480p, 360p, 4K).
     Generates high-speed proxy stream URLs with HTTP 206 Range support.
+    Cached for lightning-fast instant loading.
     """
+    cache_key = f"{subject_id}_{se}_{ep}"
+    if cache_key in STREAM_CACHE:
+        return STREAM_CACHE[cache_key]
+
     try:
         raw_streams = engine.get_streams(subject_id, season=se, episode=ep, detail_path=detail_path)
         formatted_streams = []
@@ -697,13 +705,16 @@ async def get_streams(
                 "duration_sec": s.get("duration_sec"),
             })
 
-        return {
+        response_data = {
             "subject_id": subject_id,
             "season": se,
             "episode": ep,
             "count": len(formatted_streams),
             "streams": formatted_streams,
         }
+        if formatted_streams:
+            STREAM_CACHE[cache_key] = response_data
+        return response_data
     except Exception as e:
         logger.error(f"Error resolving streams for {subject_id}: {e}")
         return {"subject_id": subject_id, "season": se, "episode": ep, "count": 0, "streams": []}
@@ -766,6 +777,14 @@ async def get_captions(
 # ---------------------------------------------------------------------------
 # HIGH-SPEED BUFFER-FREE VIDEO STREAM PROXY (HTTP 206 PARTIAL CONTENT)
 # ---------------------------------------------------------------------------
+# Ultra-fast shared persistent connection pool for zero-latency video streaming
+PROXY_HTTP_CLIENT = httpx.AsyncClient(
+    limits=httpx.Limits(max_keepalive_connections=100, max_connections=300, keepalive_expiry=120.0),
+    timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=60.0),
+    follow_redirects=True,
+)
+
+
 @app.get("/api/proxy/stream")
 async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None):
     """
@@ -800,11 +819,9 @@ async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None)
     if client_range:
         req_headers["Range"] = client_range
 
-    client = httpx.AsyncClient(timeout=httpx.Timeout(connect=15.0, read=60.0, write=15.0, pool=30.0))
-
     try:
-        upstream_req = client.build_request("GET", decoded_url, headers=req_headers)
-        upstream_resp = await client.send(upstream_req, stream=True)
+        upstream_req = PROXY_HTTP_CLIENT.build_request("GET", decoded_url, headers=req_headers)
+        upstream_resp = await PROXY_HTTP_CLIENT.send(upstream_req, stream=True)
 
         status_code = upstream_resp.status_code
 
@@ -814,6 +831,7 @@ async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None)
             "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
             "Accept-Ranges": "bytes",
             "Content-Type": upstream_resp.headers.get("Content-Type", "video/mp4"),
+            "Cache-Control": "public, max-age=86400",
         }
 
         if "Content-Range" in upstream_resp.headers:
@@ -823,13 +841,12 @@ async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None)
 
         async def stream_generator():
             try:
-                async for chunk in upstream_resp.aiter_bytes(chunk_size=128 * 1024):
+                async for chunk in upstream_resp.aiter_bytes(chunk_size=256 * 1024):
                     yield chunk
             except Exception as ex:
                 logger.debug(f"Streaming connection closed: {ex}")
             finally:
                 await upstream_resp.aclose()
-                await client.aclose()
 
         return StreamingResponse(
             stream_generator(),
@@ -839,7 +856,6 @@ async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None)
 
     except Exception as e:
         logger.error(f"Proxy stream error on {decoded_url[:60]}: {e}")
-        await client.aclose()
         raise HTTPException(status_code=502, detail=f"Proxy stream failed: {e}")
 
 

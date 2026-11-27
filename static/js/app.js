@@ -384,9 +384,24 @@ function createMediaCard(item) {
         </div>
     `;
 
+    const playOverlay = card.querySelector(".card-play-overlay");
+    if (playOverlay) {
+        playOverlay.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openPlayer(item);
+        });
+    }
+
     card.addEventListener("click", () => {
         openMediaDetails(item);
     });
+
+    // Hover pre-warm stream resolution cache for instantaneous playback
+    card.addEventListener("mouseenter", () => {
+        if (item.subject_id) {
+            fetch(`/api/streams/${item.subject_id}`).catch(() => {});
+        }
+    }, { once: true });
 
     return card;
 }
@@ -1263,39 +1278,38 @@ function closePlayer() {
 }
 
 async function loadMediaForPlayer(subjectId) {
-    showPlayerLoader("Loading movie & stream metadata...");
+    showPlayerLoader("Connecting to high-speed stream...");
 
     try {
-        const resp = await fetch(`/api/detail/${subjectId}`);
-        if (!resp.ok) throw new Error("Failed to load details");
-        const details = await resp.json();
+        const curSeason = state.isSeries ? state.currentSeason : 0;
+        const curEp = state.isSeries ? state.currentEpisode : 0;
 
-        state.isSeries = details.subject_type === 2 || details.type === "Series";
+        // 1. PRIORITY #1: Load stream sources & captions IMMEDIATELY in parallel!
+        const streamPromise = loadStreamsAndCaptions(subjectId, curSeason, curEp);
 
-        // Setup series controls if TV Series
-        if (state.isSeries) {
-            elements.seriesControls.style.display = "block";
-            elements.playerEpisodeTag.style.display = "inline-block";
-            elements.prevEpPlayerBtn.style.display = "flex";
-            elements.nextEpPlayerBtn.style.display = "flex";
-            state.seasonsData = details.seasons || [];
-            renderSeasonTabs(state.seasonsData);
-        } else {
-            elements.seriesControls.style.display = "none";
-            elements.playerEpisodeTag.style.display = "none";
-            elements.prevEpPlayerBtn.style.display = "none";
-            elements.nextEpPlayerBtn.style.display = "none";
-        }
+        // 2. Load series episodes, metadata, and audio tracks concurrently in background without blocking video
+        const detailPromise = fetch(`/api/detail/${subjectId}`)
+            .then((r) => r.json())
+            .then((details) => {
+                state.isSeries = details.subject_type === 2 || details.type === "Series";
+                if (state.isSeries) {
+                    elements.seriesControls.style.display = "block";
+                    elements.playerEpisodeTag.style.display = "inline-block";
+                    elements.prevEpPlayerBtn.style.display = "flex";
+                    elements.nextEpPlayerBtn.style.display = "flex";
+                    state.seasonsData = details.seasons || [];
+                    renderSeasonTabs(state.seasonsData);
+                } else {
+                    elements.seriesControls.style.display = "none";
+                    elements.playerEpisodeTag.style.display = "none";
+                    elements.prevEpPlayerBtn.style.display = "none";
+                    elements.nextEpPlayerBtn.style.display = "none";
+                }
+                loadAudioTracks(subjectId, curSeason, curEp);
+            })
+            .catch((err) => console.warn("Background detail load warning:", err));
 
-        // 1. Load Audio tracks (Original, English, Hindi dubs)
-        await loadAudioTracks(subjectId, state.isSeries ? state.currentSeason : 0, state.isSeries ? state.currentEpisode : 0);
-
-        // 2. Load Streams & Subtitles
-        await loadStreamsAndCaptions(
-            subjectId,
-            state.isSeries ? state.currentSeason : 0,
-            state.isSeries ? state.currentEpisode : 0
-        );
+        await streamPromise;
     } catch (err) {
         console.error("Player media load failed:", err);
         showToast("Error loading stream: " + err.message, 4000);
@@ -1348,20 +1362,26 @@ async function loadStreamsAndCaptions(subjectId, season = 0, episode = 0, resume
 }
 
 function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
-    showPlayerLoader(`Connecting to ${stream.quality} (${stream.source_name || stream.format})...`);
+    showPlayerLoader(`Starting ${stream.quality} (${stream.source_name ? stream.source_name.split("(")[0].trim() : "Stream"})...`);
 
     const streamUrl = stream.proxy_url || stream.url;
     elements.videoPlayer.src = streamUrl;
     elements.playerQualityTag.textContent = stream.quality;
     elements.playerSourceTag.textContent = stream.source_name ? stream.source_name.split("(")[0].trim() : "Source 1";
 
-    elements.videoPlayer.onloadedmetadata = () => {
-        elements.videoPlayer.playbackRate = state.playbackSpeed;
-        elements.videoPlayer.volume = state.volume;
-        elements.videoPlayer.muted = state.isMuted;
+    elements.videoPlayer.preload = "auto";
+    elements.videoPlayer.playbackRate = state.playbackSpeed;
+    elements.videoPlayer.volume = state.volume;
+    elements.videoPlayer.muted = state.isMuted;
+    elements.videoPlayer.load();
 
+    let started = false;
+    const triggerInstantPlay = () => {
+        if (started) return;
+        started = true;
+        hidePlayerLoader();
         if (resumeTime > 0) {
-            elements.videoPlayer.currentTime = resumeTime;
+            try { elements.videoPlayer.currentTime = resumeTime; } catch (e) {}
         }
         if (autoPlay) {
             elements.videoPlayer.play().catch((e) => {
@@ -1369,7 +1389,13 @@ function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
                 updatePlayPauseIcons(false);
             });
         }
-        hidePlayerLoader();
+    };
+
+    // Start playing as soon as initial video buffer is ready
+    elements.videoPlayer.oncanplay = triggerInstantPlay;
+    elements.videoPlayer.onloadeddata = triggerInstantPlay;
+    elements.videoPlayer.onloadedmetadata = () => {
+        if (!started) triggerInstantPlay();
     };
 }
 
