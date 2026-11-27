@@ -111,49 +111,90 @@ async def discover_catalog(
 @app.get("/api/home")
 async def get_home_feed():
     """
-    Returns curated home feed featuring only released blockbusters
-    that have guaranteed, high-speed streaming sources.
+    Returns curated home feed combining latest TMDB trending,
+    popular movies, TV series, and Anime/Cartoons.
     """
+    # 1. Latest Trending from TMDB
     try:
-        # Discover top released blockbuster movies
-        movies_resp = tmdb.discover(media_type="movie", sort_by="popularity.desc", year=2024, page=1)
+        trending = tmdb.get_trending_all("week")
+    except Exception as e:
+        logger.error(f"Failed to fetch TMDB trending: {e}")
+        trending = []
+
+    # 2. Latest Popular Movies
+    try:
+        movies_resp = tmdb.discover(media_type="movie", sort_by="popularity.desc", page=1)
         popular_movies = movies_resp.get("results", [])
     except Exception as e:
         logger.error(f"Failed to fetch popular movies: {e}")
         popular_movies = []
 
+    # 3. Latest Popular TV Series
     try:
-        # Discover top TV series
         series_resp = tmdb.discover(media_type="tv", sort_by="popularity.desc", page=1)
         popular_series = series_resp.get("results", [])
     except Exception as e:
         logger.error(f"Failed to fetch popular series: {e}")
         popular_series = []
 
-    # Fallback to Moviebox search if TMDB is empty
-    if not popular_movies:
-        try:
-            popular_movies = engine.search("Avengers", page=1, per_page=12)
-        except Exception:
-            pass
+    # 4. Anime & Cartoons (Animation genre 16)
+    try:
+        anime_tv = tmdb.discover(media_type="tv", genre_id=16, sort_by="popularity.desc", page=1).get("results", [])
+        anime_movies = tmdb.discover(media_type="movie", genre_id=16, sort_by="popularity.desc", page=1).get("results", [])
+        anime_combined = []
+        max_len = max(len(anime_tv), len(anime_movies))
+        for i in range(max_len):
+            if i < len(anime_tv):
+                anime_combined.append(anime_tv[i])
+            if i < len(anime_movies):
+                anime_combined.append(anime_movies[i])
+    except Exception as e:
+        logger.error(f"Failed to fetch anime: {e}")
+        anime_combined = []
 
-    # Curate trending list from top popular movies and series
-    trending = (popular_movies[:8] + popular_series[:7]) if popular_movies else []
-    # Pick a stellar released blockbuster for featured banner (e.g. Dune: Part Two or Deadpool)
+    # Pick a stellar title with backdrop for hero banner
     featured = None
-    for candidate in popular_movies:
-        if candidate.get("backdrop") and candidate.get("rating"):
+    for candidate in (trending + popular_movies):
+        if candidate.get("backdrop") and candidate.get("rating", 0) >= 7.0 and candidate.get("overview"):
             featured = candidate
             break
-    if not featured and popular_movies:
-        featured = popular_movies[0]
+    if not featured and trending:
+        featured = trending[0]
 
     return {
         "featured": featured,
-        "trending": trending,
-        "movies": popular_movies[:12],
-        "series": popular_series[:12],
+        "trending": trending[:15],
+        "movies": popular_movies[:15],
+        "series": popular_series[:15],
+        "anime": anime_combined[:15],
     }
+
+
+@app.get("/api/anime")
+async def get_anime_catalog(page: int = 1):
+    """
+    Returns paginated Anime & Cartoon titles combining animated series and movies.
+    """
+    try:
+        safe_page = max(1, page)
+        anime_tv = tmdb.discover(media_type="tv", genre_id=16, sort_by="popularity.desc", page=safe_page).get("results", [])
+        anime_movies = tmdb.discover(media_type="movie", genre_id=16, sort_by="popularity.desc", page=safe_page).get("results", [])
+        combined = []
+        max_len = max(len(anime_tv), len(anime_movies))
+        for i in range(max_len):
+            if i < len(anime_tv):
+                combined.append(anime_tv[i])
+            if i < len(anime_movies):
+                combined.append(anime_movies[i])
+
+        return {
+            "page": safe_page,
+            "results": combined,
+            "has_more": len(combined) > 0,
+        }
+    except Exception as e:
+        logger.error(f"Anime catalog error: {e}")
+        return {"page": page, "results": [], "has_more": False}
 
 
 @app.get("/api/search")
@@ -247,32 +288,49 @@ async def resolve_tmdb_to_moviebox(
     tmdb_id: Optional[int] = None,
 ):
     """
-    Bridges TMDB titles to MovieBox streamable subject_ids with in-memory caching.
+    Bridges TMDB titles to MovieBox streamable subject_ids with multi-level resilient search.
     """
-    cache_key = f"{title}_{year or ''}"
-    if cache_key in TMDB_SUBJECT_CACHE:
-        return {"subject_id": TMDB_SUBJECT_CACHE[cache_key], "cached": True}
+    try:
+        cache_key = f"{title.strip().lower()}_{year or ''}"
+        if cache_key in TMDB_SUBJECT_CACHE:
+            return {"subject_id": TMDB_SUBJECT_CACHE[cache_key], "cached": True}
 
-    # Search Moviebox with clean title
-    clean_title = re.sub(r"\[.*?\]|\(.*?\)", "", title).strip()
-    candidates = engine.search(clean_title, page=1, per_page=10)
+        # 1. Clean title search (strip brackets/parentheses)
+        clean_title = re.sub(r"\[.*?\]|\(.*?\)", "", title).strip()
+        candidates = engine.search(clean_title, page=1, per_page=10)
 
-    if not candidates:
-        return {"subject_id": None, "error": "Not found in streaming catalog"}
+        # 2. Simplified search (strip special characters, dashes, colons)
+        if not candidates:
+            simplified = re.sub(r"[^\w\s]", " ", clean_title).strip()
+            simplified = re.sub(r"\s+", " ", simplified)
+            if simplified.lower() != clean_title.lower():
+                candidates = engine.search(simplified, page=1, per_page=10)
 
-    # Best match heuristics
-    best_id = candidates[0].get("subject_id")
-    if year:
-        for c in candidates:
-            if (c.get("release_date") or "").startswith(year):
-                best_id = c.get("subject_id")
-                break
+        # 3. Short title search (first 2 words)
+        if not candidates:
+            words = [w for w in re.split(r"\s+|[:\-_]", clean_title) if w]
+            if len(words) > 1:
+                short_q = " ".join(words[:2])
+                candidates = engine.search(short_q, page=1, per_page=10)
 
-    if best_id:
-        TMDB_SUBJECT_CACHE[cache_key] = best_id
-        return {"subject_id": best_id, "cached": False}
+        if not candidates:
+            return {"subject_id": None, "error": "Not found in streaming catalog"}
 
-    return {"subject_id": None, "error": "No stream candidate"}
+        best_id = candidates[0].get("subject_id")
+        if year:
+            for c in candidates:
+                if (c.get("release_date") or "").startswith(str(year)):
+                    best_id = c.get("subject_id")
+                    break
+
+        if best_id:
+            TMDB_SUBJECT_CACHE[cache_key] = best_id
+            return {"subject_id": best_id, "cached": False}
+
+        return {"subject_id": None, "error": "No stream candidate"}
+    except Exception as e:
+        logger.error(f"resolve_tmdb_to_moviebox error for '{title}': {e}")
+        return {"subject_id": None, "error": str(e)}
 
 
 @app.get("/api/detail/{subject_id}")

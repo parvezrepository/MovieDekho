@@ -119,8 +119,15 @@ def run_all_tests():
     assert trailer_data.get("key") is not None, "Missing trailer YouTube key"
     print(f" [PASS] 12. Official Trailer resolved: '{trailer_data.get('name')}' (key: {trailer_data.get('key')}).")
 
+    # 13. Dedicated Anime & Cartoon Endpoint
+    r_anime = client.get("/api/anime?page=1")
+    assert r_anime.status_code == 200, f"Anime failed: {r_anime.status_code}"
+    anime_data = r_anime.json()
+    assert len(anime_data.get("results", [])) > 0, "Empty anime results"
+    print(f" [PASS] 13. Anime & Cartoon catalog verified ({len(anime_data['results'])} titles, e.g. '{anime_data['results'][0]['title']}').")
+
     print("\n==================================================")
-    print(" ALL 12 TESTS PASSED WITH 100% SUCCESS!")
+    print(" ALL 13 TESTS PASSED WITH 100% SUCCESS!")
     print("==================================================")
 
 if __name__ == "__main__":

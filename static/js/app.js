@@ -104,6 +104,9 @@ const elements = {
     trendingGrid: document.getElementById("trendingGrid"),
     moviesGrid: document.getElementById("moviesGrid"),
     seriesGrid: document.getElementById("seriesGrid"),
+    animeGrid: document.getElementById("animeGrid"),
+    animeSection: document.getElementById("animeSection"),
+    navAnime: document.getElementById("navAnime"),
     catalogInfiniteLoader: document.getElementById("catalogInfiniteLoader"),
     catalogInfiniteSentinel: document.getElementById("catalogInfiniteSentinel"),
 
@@ -288,6 +291,7 @@ async function loadHomeFeed() {
         if (data.trending && data.trending.length > 0) renderGrid(elements.trendingGrid, data.trending);
         if (data.movies && data.movies.length > 0) renderGrid(elements.moviesGrid, data.movies);
         if (data.series && data.series.length > 0) renderGrid(elements.seriesGrid, data.series);
+        if (data.anime && data.anime.length > 0) renderGrid(elements.animeGrid, data.anime);
     } catch (err) {
         console.error("Home feed error:", err);
         showToast("Connecting to streaming index...", 2000);
@@ -682,11 +686,18 @@ function resetFilters() {
 function navigateTo(tab, event) {
     if (event) event.preventDefault();
     document.querySelectorAll(".nav-link").forEach((l) => l.classList.remove("active"));
-    if (event && event.target) event.target.classList.add("active");
+    if (event && event.target) {
+        event.target.classList.add("active");
+    } else {
+        const btnId = tab === "home" ? "navHome" : (tab === "movies" ? "navMovies" : (tab === "series" ? "navSeries" : "navAnime"));
+        const btn = document.getElementById(btnId);
+        if (btn) btn.classList.add("active");
+    }
 
     const trendingSec = document.getElementById("trendingSection");
     const moviesSec = document.getElementById("moviesSection");
     const seriesSec = document.getElementById("seriesSection");
+    const animeSec = document.getElementById("animeSection");
 
     clearSearch();
 
@@ -695,20 +706,29 @@ function navigateTo(tab, event) {
     state.catalogHasMore = true;
 
     if (tab === "home") {
-        trendingSec.style.display = "block";
-        moviesSec.style.display = "block";
-        seriesSec.style.display = "block";
+        if (trendingSec) trendingSec.style.display = "block";
+        if (moviesSec) moviesSec.style.display = "block";
+        if (seriesSec) seriesSec.style.display = "block";
+        if (animeSec) animeSec.style.display = "block";
         window.scrollTo({ top: 0, behavior: "smooth" });
     } else if (tab === "movies") {
-        trendingSec.style.display = "none";
-        moviesSec.style.display = "block";
-        seriesSec.style.display = "none";
+        if (trendingSec) trendingSec.style.display = "none";
+        if (moviesSec) moviesSec.style.display = "block";
+        if (seriesSec) seriesSec.style.display = "none";
+        if (animeSec) animeSec.style.display = "none";
         moviesSec.scrollIntoView({ behavior: "smooth" });
     } else if (tab === "series") {
-        trendingSec.style.display = "none";
-        moviesSec.style.display = "none";
-        seriesSec.style.display = "block";
+        if (trendingSec) trendingSec.style.display = "none";
+        if (moviesSec) moviesSec.style.display = "none";
+        if (seriesSec) seriesSec.style.display = "block";
+        if (animeSec) animeSec.style.display = "none";
         seriesSec.scrollIntoView({ behavior: "smooth" });
+    } else if (tab === "anime") {
+        if (trendingSec) trendingSec.style.display = "none";
+        if (moviesSec) moviesSec.style.display = "none";
+        if (seriesSec) seriesSec.style.display = "none";
+        if (animeSec) animeSec.style.display = "block";
+        animeSec.scrollIntoView({ behavior: "smooth" });
     }
 }
 
@@ -763,6 +783,16 @@ async function loadNextCatalogPage() {
                 state.catalogHasMore = false;
             } else {
                 appendCardsToGrid(elements.seriesGrid, results);
+            }
+        } else if (state.activeTab === "anime") {
+            const resp = await fetch(`/api/anime?page=${nextPage}`);
+            if (!resp.ok) throw new Error("HTTP " + resp.status);
+            const data = await resp.json();
+            const results = data.results || [];
+            if (results.length === 0) {
+                state.catalogHasMore = false;
+            } else {
+                appendCardsToGrid(elements.animeGrid, results);
             }
         } else if (state.activeTab === "filter" && state.activeFilterParams) {
             let url = `/api/discover?page=${nextPage}&${state.activeFilterParams}`;
@@ -921,10 +951,19 @@ async function openMediaDetails(item) {
     try {
         // If subject_id is not yet present, resolve from TMDB title
         if (!subjectId) {
-            const bridge = await fetch(`/api/tmdb-to-moviebox?title=${encodeURIComponent(title)}&year=${elements.detailYear.textContent}&tmdb_id=${tmdbId || ""}`);
-            const bridgeData = await bridge.json();
-            subjectId = bridgeData.subject_id;
-            state.activeDetailItem.subject_id = subjectId;
+            try {
+                const yearVal = elements.detailYear ? elements.detailYear.textContent : "";
+                const bridge = await fetch(`/api/tmdb-to-moviebox?title=${encodeURIComponent(title)}&year=${yearVal}&tmdb_id=${tmdbId || ""}`);
+                if (bridge.ok) {
+                    const bridgeData = await bridge.json();
+                    if (bridgeData && bridgeData.subject_id) {
+                        subjectId = bridgeData.subject_id;
+                        state.activeDetailItem.subject_id = subjectId;
+                    }
+                }
+            } catch (err) {
+                console.warn("Detail bridge match warning:", err);
+            }
         }
 
         if (subjectId) {
@@ -1155,27 +1194,41 @@ async function openPlayer(item) {
         showPlayerLoader(`Connecting to streaming catalog for "${title}"...`);
         openPlayerModal(title);
 
+        const yearParam = item.year || (item.release_date ? item.release_date.slice(0, 4) : "");
+
         try {
-            const bridge = await fetch(`/api/tmdb-to-moviebox?title=${encodeURIComponent(title)}&year=${item.year || ""}`);
-            const bData = await bridge.json();
-            if (bData.subject_id) {
-                subjectId = bData.subject_id;
-            } else {
-                const sResp = await fetch(`/api/search?q=${encodeURIComponent(title)}`);
-                const sData = await sResp.json();
-                const matched = sData && sData.results && sData.results.length > 0 ? sData.results[0] : null;
-                if (matched && matched.subject_id) {
-                    subjectId = matched.subject_id;
-                } else {
-                    hidePlayerLoader();
-                    showToast(`Stream server is preparing "${title}". Please choose another title from Home or Search!`, 3500);
-                    return;
+            const bridge = await fetch(`/api/tmdb-to-moviebox?title=${encodeURIComponent(title)}&year=${yearParam}`);
+            if (bridge.ok) {
+                const bData = await bridge.json();
+                if (bData && bData.subject_id) {
+                    subjectId = bData.subject_id;
                 }
             }
-        } catch (err) {
-            console.error("Match error:", err);
+        } catch (e) {
+            console.warn("Bridge lookup failed, falling back to direct search:", e);
+        }
+
+        // Direct search fallback
+        if (!subjectId) {
+            try {
+                const sResp = await fetch(`/api/search?q=${encodeURIComponent(title)}`);
+                if (sResp.ok) {
+                    const sData = await sResp.json();
+                    const matched = sData && sData.results && sData.results.length > 0 ? sData.results[0] : null;
+                    if (matched && matched.subject_id) {
+                        subjectId = matched.subject_id;
+                    }
+                }
+            } catch (e) {
+                console.warn("Search fallback error:", e);
+            }
+        }
+
+        if (!subjectId) {
             hidePlayerLoader();
-            showToast(`Could not connect stream server for "${title}". Please try again!`, 3500);
+            elements.playerModal.classList.remove("active");
+            document.body.style.overflow = "";
+            showToast(`Stream source is preparing "${title}". Please choose another title from Home or Search!`, 3500);
             return;
         }
     } else {

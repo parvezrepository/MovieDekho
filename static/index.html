@@ -13,7 +13,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=4.0">
+    <link rel="stylesheet" href="/static/css/style.css?v=5.0">
 </head>
 
 <body>
@@ -49,9 +49,10 @@
 
             <!-- Navigation Links -->
             <nav class="nav-links">
-                <button class="nav-link active" onclick="navigateTo('home', event)">Home</button>
-                <button class="nav-link" onclick="navigateTo('movies', event)">Movies</button>
-                <button class="nav-link" onclick="navigateTo('series', event)">TV Series</button>
+                <button class="nav-link active" id="navHome" onclick="navigateTo('home', event)">Home</button>
+                <button class="nav-link" id="navMovies" onclick="navigateTo('movies', event)">Movies</button>
+                <button class="nav-link" id="navSeries" onclick="navigateTo('series', event)">TV Series</button>
+                <button class="nav-link" id="navAnime" onclick="navigateTo('anime', event)">⚡ Anime & Cartoon</button>
                 <button class="nav-link" onclick="toggleDiscoverFilters(event)">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
                         style="margin-right: 4px;">
@@ -190,6 +191,15 @@
                 <h2 class="section-title">📺 Binge-Worthy TV Series</h2>
             </div>
             <div id="seriesGrid" class="media-grid"></div>
+        </section>
+
+        <!-- Anime & Cartoons Section -->
+        <section id="animeSection" class="catalog-section">
+            <div class="section-header">
+                <h2 class="section-title">⚡ Anime & Cartoons</h2>
+                <p class="section-subtitle">Top popular animated series, anime episodes & animated movies</p>
+            </div>
+            <div id="animeGrid" class="media-grid"></div>
         </section>
 
         <!-- Global Infinite Scroll Loader & Sentinel -->
@@ -614,7 +624,7 @@
     </a>
 
     <!-- App Script -->
-    <script src="/static/js/app.js?v=4.0"></script>
+    <script src="/static/js/app.js?v=5.0"></script>
 </body>
 
 </html>
