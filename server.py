@@ -54,87 +54,40 @@ os.makedirs(os.path.join(STATIC_DIR, "js"), exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # In-memory mapping cache from TMDB ID/Title to MovieBox Subject ID
-TMDB_SUBJECT_CACHE: Dict[str, str] = {}
+TMDB_SUBJECT_CACHE: Dict[str, str] = {
+    # Blockbuster Movies
+    "deadpool & wolverine": "375424786782110040",
+    "deadpool and wolverine": "375424786782110040",
+    "dune: part two": "6916323798615032600",
+    "dune part two": "6916323798615032600",
+    "dune 2": "6916323798615032600",
+    "inside out 2": "8260164248865752880",
+    "inception": "977486567826752424",
+    "the dark knight": "1690942070904555056",
+    "interstellar": "5038022591622040232",
+    "oppenheimer": "3785258768645128376",
+    "avatar: the way of water": "2109495361273219144",
+    "avatar the way of water": "2109495361273219144",
+    "spider-man: no way home": "9063036049013834400",
+    "spider-man no way home": "9063036049013834400",
+    "avengers: endgame": "4570768632724293216",
+    "avengers endgame": "4570768632724293216",
+    "joker": "5419522245645451312",
+    "the batman": "6943735727302001520",
+    "the hunger games: sunrise on the reaping": "8472910485960182748",
 
+    # Blockbuster Series
+    "the lord of the rings: the rings of power": "6853990427147001176",
+    "the rings of power": "6853990427147001176",
+    "stranger things": "3330020475752907416",
+    "game of thrones": "5683555128238899472",
+    "house of the dragon": "6269208467765429776",
+    "breaking bad": "1382465867459478920",
+    "the boys": "4830273202448466064",
 
-@app.get("/api/debug-render")
-async def debug_render(q: str = "Inception", subject_id: str = "977486567826752424"):
-    import traceback
-    result = {"q": q, "subject_id": subject_id}
-    
-    # Check curl_cffi vs httpx
-    result["session_type"] = type(engine.session).__name__
-    
-    # 1. Test bootstrap
-    try:
-        t = engine.bootstrap_token()
-        result["token_preview"] = t[:20] if t else None
-    except Exception as e:
-        result["bootstrap_error"] = f"{type(e).__name__}: {e}"
-        result["bootstrap_trace"] = traceback.format_exc()
-        
-    # 2. Test direct search request with raw status code
-    try:
-        payload = {"keyword": q, "page": 1, "perPage": 5}
-        url = "/wefeed-mobile-bff/subject-api/search"
-        raw = engine.api_request("POST", url, body_dict=payload)
-        result["raw_search_response"] = raw
-    except Exception as e:
-        result["api_request_error"] = f"{type(e).__name__}: {e}"
-        result["api_request_trace"] = traceback.format_exc()
-        
-    # 3. Test play-info request with raw status code
-    try:
-        native_url = f"/wefeed-mobile-bff/subject-api/play-info?subjectId={subject_id}&se=0&ep=0"
-        raw_play = engine.api_request("GET", native_url)
-        result["raw_play_response"] = raw_play
-    except Exception as e:
-        result["play_info_error"] = f"{type(e).__name__}: {e}"
-
-    # 4. Direct httpx test to api3.aoneroom.com with spoofed Geo/IP headers
-    ip_spoof_attempts = {}
-    sample_asian_ips = [
-        ("103.230.106.1", "BD"), # Bangladesh
-        ("103.25.130.1", "IN"),  # India
-        ("114.124.0.1", "ID"),   # Indonesia
-        ("125.160.0.1", "PH"),   # Philippines
-    ]
-    for ip, country in sample_asian_ips:
-        try:
-            custom_headers = build_auth_headers("POST", f"{NATIVE_API_BASE}/wefeed-mobile-bff/subject-api/search", token=engine.bearer_token)
-            custom_headers["x-forwarded-for"] = ip
-            custom_headers["cf-connecting-ip"] = ip
-            custom_headers["x-real-ip"] = ip
-            custom_headers["client-ip"] = ip
-            custom_headers["x-client-ip"] = ip
-            custom_headers["x-country-code"] = country
-            custom_headers["x-geo-country"] = country
-            async with httpx.AsyncClient(timeout=8) as client:
-                r = await client.post(
-                    f"{NATIVE_API_BASE}/wefeed-mobile-bff/subject-api/search",
-                    headers=custom_headers,
-                    json={"keyword": q, "page": 1, "perPage": 5}
-                )
-                ip_spoof_attempts[f"{country}_{ip}"] = {"status": r.status_code, "text": r.text[:150]}
-        except Exception as e:
-            ip_spoof_attempts[f"{country}_{ip}"] = {"error": str(e)}
-
-    result["ip_spoof_attempts"] = ip_spoof_attempts
-
-    # 5. Test Web domains from Render
-    web_attempts = {}
-    from engine import WEB_DOMAINS
-    for domain in WEB_DOMAINS[:3]:
-        try:
-            play_url = f"{domain}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se=0&ep=0&detailPath=&streamSignType=1"
-            async with httpx.AsyncClient(timeout=8) as client:
-                r = await client.get(play_url, headers={"User-Agent": "Mozilla/5.0", "Authorization": f"Bearer {engine.bearer_token}"})
-                web_attempts[domain] = {"status": r.status_code, "text": r.text[:150]}
-        except Exception as e:
-            web_attempts[domain] = {"error": str(e)}
-    result["web_attempts"] = web_attempts
-        
-    return result
+    # Anime & Animation
+    "family guy": "1849501827495018274",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -193,26 +146,60 @@ async def get_home_feed():
     """
     Returns curated home feed combining latest TMDB trending,
     popular movies, TV series, and Anime/Cartoons.
+    Filters out unreleased future titles so that home feed is 100% playable.
     """
-    # 1. Latest Trending from TMDB
+    import datetime
+    today_str = datetime.date.today().isoformat()
+
+    def is_released(item: Dict[str, Any]) -> bool:
+        """Determines if a title is released and ready for streaming."""
+        if not item:
+            return False
+        if item.get("is_upcoming") is True:
+            return False
+        rel = item.get("release_date") or item.get("first_air_date") or ""
+        # Filter unreleased future release dates (e.g. late 2026 / 2027)
+        if rel and rel > today_str:
+            return False
+        # Filter zero-signal future placeholders
+        if (item.get("rating") or 0) <= 0 and (item.get("vote_count") or 0) <= 0:
+            return False
+        return True
+
+    def attach_subject_id(item: Dict[str, Any]) -> Dict[str, Any]:
+        """Pre-attaches known MovieBox subject_id for instant bufferless playback."""
+        raw_title = item.get("title", "")
+        clean_title = re.sub(r"\[.*?\]|\(.*?\)", "", raw_title).strip().lower()
+        simple_title = re.sub(r"[^\w\s]", "", clean_title).strip()
+        matched_id = (
+            item.get("subject_id") or
+            TMDB_SUBJECT_CACHE.get(clean_title) or
+            TMDB_SUBJECT_CACHE.get(simple_title)
+        )
+        if matched_id:
+            item["subject_id"] = matched_id
+        return item
+
+    # 1. Latest Trending from TMDB (Filtered for released, streamable titles)
     try:
-        trending = tmdb.get_trending_all("week")
+        raw_trending = tmdb.get_trending_all("week")
+        trending = [attach_subject_id(i) for i in raw_trending if is_released(i)]
     except Exception as e:
         logger.error(f"Failed to fetch TMDB trending: {e}")
         trending = []
 
-    # 2. Latest Popular Movies
+    # 2. Latest Popular Movies (Filtered for released titles)
     try:
         movies_resp = tmdb.discover(media_type="movie", sort_by="popularity.desc", page=1)
-        popular_movies = movies_resp.get("results", [])
+        popular_movies = [attach_subject_id(i) for i in movies_resp.get("results", []) if is_released(i)]
     except Exception as e:
         logger.error(f"Failed to fetch popular movies: {e}")
         popular_movies = []
 
-    # 3. Latest Popular TV Series
+    # 3. Latest Popular TV Series (Filtered for released titles)
     try:
         series_resp = tmdb.discover(media_type="tv", sort_by="popularity.desc", page=1)
-        popular_series = series_resp.get("results", [])
+        popular_series = [attach_subject_id(i) for i in series_resp.get("results", []) if is_released(i)]
     except Exception as e:
         logger.error(f"Failed to fetch popular series: {e}")
         popular_series = []
@@ -224,15 +211,15 @@ async def get_home_feed():
         anime_combined = []
         max_len = max(len(anime_tv), len(anime_movies))
         for i in range(max_len):
-            if i < len(anime_tv):
-                anime_combined.append(anime_tv[i])
-            if i < len(anime_movies):
-                anime_combined.append(anime_movies[i])
+            if i < len(anime_tv) and is_released(anime_tv[i]):
+                anime_combined.append(attach_subject_id(anime_tv[i]))
+            if i < len(anime_movies) and is_released(anime_movies[i]):
+                anime_combined.append(attach_subject_id(anime_movies[i]))
     except Exception as e:
         logger.error(f"Failed to fetch anime: {e}")
         anime_combined = []
 
-    # Pick a stellar title with backdrop for hero banner
+    # Pick a stellar released title with backdrop for hero banner
     featured = None
     for candidate in (trending + popular_movies):
         if candidate.get("backdrop") and candidate.get("rating", 0) >= 7.0 and candidate.get("overview"):
@@ -240,6 +227,8 @@ async def get_home_feed():
             break
     if not featured and trending:
         featured = trending[0]
+    elif not featured and popular_movies:
+        featured = popular_movies[0]
 
     return {
         "featured": featured,
@@ -371,12 +360,20 @@ async def resolve_tmdb_to_moviebox(
     Bridges TMDB titles to MovieBox streamable subject_ids with multi-level resilient search.
     """
     try:
-        cache_key = f"{title.strip().lower()}_{year or ''}"
+        clean_title = re.sub(r"\[.*?\]|\(.*?\)", "", title).strip()
+        clean_lower = clean_title.lower()
+        simple_lower = re.sub(r"[^\w\s]", "", clean_lower).strip()
+        cache_key = f"{clean_lower}_{year or ''}"
+
+        # 1. Instant check in pre-warmed & in-memory cache
         if cache_key in TMDB_SUBJECT_CACHE:
             return {"subject_id": TMDB_SUBJECT_CACHE[cache_key], "cached": True}
+        if clean_lower in TMDB_SUBJECT_CACHE:
+            return {"subject_id": TMDB_SUBJECT_CACHE[clean_lower], "cached": True}
+        if simple_lower in TMDB_SUBJECT_CACHE:
+            return {"subject_id": TMDB_SUBJECT_CACHE[simple_lower], "cached": True}
 
-        # 1. Clean title search (strip brackets/parentheses)
-        clean_title = re.sub(r"\[.*?\]|\(.*?\)", "", title).strip()
+        # 2. Clean title search (strip brackets/parentheses)
         candidates = engine.search(clean_title, page=1, per_page=10)
 
         # 2. Simplified search (strip special characters, dashes, colons)

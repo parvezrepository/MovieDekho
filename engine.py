@@ -37,6 +37,7 @@ BOOTSTRAP_HOST = "https://apig.inmoviebox.com"
 BOOTSTRAP_URL = f"{BOOTSTRAP_HOST}/wefeed-mobile-bff/tab/ranking-list?tabId=0&categoryType=4516404531735022304&page=1&perPage=1"
 
 WEB_DOMAINS = [
+    "https://moviebox01.com",
     "https://123moviesfree.club",
     "https://movie-box.co",
     "https://movieboxonline.net",
@@ -232,14 +233,7 @@ class MovieBoxEngine:
             "BWVxxTrjpGQT6YJ8HLSGET97WHvkGi4L_9jHxP7shtk"
         )
         self.token_expiry: float = time.time() + 86400 * 365
-        if cr:
-            try:
-                self.session = cr.Session(impersonate="chrome120")
-            except Exception as e:
-                logger.warning(f"curl_cffi failed to init impersonation: {e}, using httpx fallback")
-                self.session = httpx.Client(timeout=25, follow_redirects=True)
-        else:
-            self.session = httpx.Client(timeout=25, follow_redirects=True)
+        self.session = httpx.Client(timeout=25, follow_redirects=True)
 
     @classmethod
     def get_instance(cls) -> "MovieBoxEngine":
