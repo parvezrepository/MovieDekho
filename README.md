@@ -52,7 +52,7 @@ A modern, high-performance web-based movie discovery and streaming platform buil
 * Python 3.10+
 * Git
 
-### Installation
+### Installation & Local Run
 1. Clone the repository:
    ```bash
    git clone https://github.com/parvezrepository/MovieDekho.git
@@ -74,6 +74,52 @@ A modern, high-performance web-based movie discovery and streaming platform buil
    ```
    http://localhost:8080
    ```
+
+---
+
+## 🐧 Linux VPS Deployment (Ubuntu / Debian / CentOS)
+
+### Option 1: 1-Command Startup
+```bash
+git clone https://github.com/parvezrepository/MovieDekho.git
+cd MovieDekho
+chmod +x run.sh
+./run.sh
+```
+
+### Option 2: 24/7 Background Systemd Service
+To keep PARXSTREAM running 24/7 with auto-restart on boot:
+```bash
+sudo cp parxstream.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable parxstream
+sudo systemctl start parxstream
+sudo systemctl status parxstream
+```
+
+### Option 3: Nginx Reverse Proxy with Domain & SSL
+Example Nginx configuration (`/etc/nginx/sites-available/parxstream`):
+```nginx
+server {
+    server_name yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+    }
+}
+```
+Enable SSL with Certbot:
+```bash
+sudo certbot --nginx -d yourdomain.com
+```
 
 ---
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=PARXSTREAM Ultra Cinema Engine
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/Moviebox
+ExecStart=/var/www/Moviebox/venv/bin/uvicorn server:app --host 0.0.0.0 --port 8080 --workers 4
+Restart=always
+RestartSec=3
+KillSignal=SIGQUIT
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target
