@@ -508,7 +508,7 @@ function setupEventListeners() {
 
     v.addEventListener("error", (e) => {
         console.warn("Video stream error event:", e);
-        fallbackToNextSource();
+        // Handled with resilient retry inside applyVideoStream
     });
 
     // Video container click to play/pause
@@ -1567,9 +1567,11 @@ function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
     elements.videoPlayer.load();
 
     let started = false;
+    let streamRetryCount = 0;
     const triggerInstantPlay = () => {
         if (started) return;
         started = true;
+        streamRetryCount = 0;
         if (videoStallTimeout) {
             clearTimeout(videoStallTimeout);
             videoStallTimeout = null;
@@ -1588,11 +1590,25 @@ function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
 
     // Auto-fallback ONLY when in Auto mode; if user manually selected quality, respect user's choice!
     elements.videoPlayer.onerror = (e) => {
-        console.warn(`Stream playback error on ${stream.quality}`, e);
+        const v = elements.videoPlayer;
+        const curTime = v.currentTime || 0;
+        console.warn(`Stream playback event on ${stream.quality} at ${curTime}s:`, e);
+
         if (videoStallTimeout) {
             clearTimeout(videoStallTimeout);
             videoStallTimeout = null;
         }
+
+        // If video was already playing for > 5s, treat as transient network glitch and resume without switching sources
+        if (curTime > 5 && streamRetryCount < 2) {
+            streamRetryCount++;
+            console.log(`Recovering stream at ${curTime}s without changing source (attempt ${streamRetryCount})...`);
+            v.load();
+            v.currentTime = curTime;
+            v.play().catch(() => {});
+            return;
+        }
+
         if (state.isAutoQuality !== false) {
             fallbackToNextSource();
         } else {
@@ -1601,14 +1617,14 @@ function applyVideoStream(stream, resumeTime = 0, autoPlay = true) {
         }
     };
 
-    // Safety timeout ONLY in Auto mode: If stream stalls for > 8 seconds without playing, auto fallback
+    // Safety timeout ONLY in Auto mode: If stream stalls for > 15 seconds without playing, auto fallback
     if (state.isAutoQuality !== false) {
         videoStallTimeout = setTimeout(() => {
             if (!started && elements.playerModal.classList.contains("active") && state.isAutoQuality !== false) {
                 console.warn(`Playback initial buffer stalled for ${stream.quality}, auto-falling back...`);
                 fallbackToNextSource();
             }
-        }, 8000);
+        }, 15000);
     }
 
     // Start playing as soon as initial video buffer is ready
@@ -1719,7 +1735,7 @@ function fallbackToNextSource() {
 
     if (nextStream && nextStream !== state.currentStream) {
         console.log(`Smart Fallback: switching from ${state.currentStream ? state.currentStream.quality : "?"} to ${nextStream.quality}`);
-        showToast(`Network speed adjusting: playing in ${nextStream.quality}...`, 2500);
+        showToast(`Connecting to backup stream (${nextStream.quality})...`, 2000);
         const currentTime = elements.videoPlayer.currentTime || 0;
         state.currentStream = nextStream;
         renderQualityOptions(state.availableStreams);

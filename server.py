@@ -900,8 +900,8 @@ async def get_captions(
 # ---------------------------------------------------------------------------
 # Ultra-fast shared persistent connection pool for zero-latency video streaming
 PROXY_HTTP_CLIENT = httpx.AsyncClient(
-    limits=httpx.Limits(max_keepalive_connections=100, max_connections=300, keepalive_expiry=120.0),
-    timeout=httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=60.0),
+    limits=httpx.Limits(max_keepalive_connections=200, max_connections=500, keepalive_expiry=300.0),
+    timeout=httpx.Timeout(connect=15.0, read=180.0, write=15.0, pool=120.0),
     follow_redirects=True,
 )
 
@@ -952,7 +952,10 @@ async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None)
             "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
             "Accept-Ranges": "bytes",
             "Content-Type": upstream_resp.headers.get("Content-Type", "video/mp4"),
-            "Cache-Control": "public, max-age=86400",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "X-Accel-Buffering": "no",
         }
 
         if "Content-Range" in upstream_resp.headers:
@@ -962,7 +965,7 @@ async def stream_proxy(url: str, request: Request, cookie: Optional[str] = None)
 
         async def stream_generator():
             try:
-                async for chunk in upstream_resp.aiter_bytes(chunk_size=256 * 1024):
+                async for chunk in upstream_resp.aiter_bytes(chunk_size=512 * 1024):
                     yield chunk
             except Exception as ex:
                 logger.debug(f"Streaming connection closed: {ex}")
