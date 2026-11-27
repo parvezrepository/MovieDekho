@@ -442,6 +442,16 @@ class MovieBoxEngine:
                         url = st.get("url")
                         if not url or url in seen_urls:
                             continue
+                        # Strictly discard trailer / teaser clips and YouTube promos
+                        if "youtube" in url.lower() or "ugc-video" in url.lower():
+                            continue
+                        size_bytes = int(st.get("size") or 0)
+                        size_mb = size_bytes / (1024 * 1024) if size_bytes else 0
+                        dur = st.get("duration")
+                        if dur and 0 < dur <= 90:
+                            continue
+                        if size_mb > 0 and size_mb < 20 and not (".mpd" in url or "dash" in url.lower()):
+                            continue
                         seen_urls.add(url)
                         res_str = str(st.get("resolutions", "unknown"))
                         size_bytes = int(st.get("size") or 0)
@@ -509,6 +519,16 @@ class MovieBoxEngine:
                 policy_url = extract_policy_resource(cookie) if cookie else None
                 final_url = policy_url or raw_url
                 if final_url in seen_urls:
+                    continue
+                # Strictly discard trailer / teaser clips and YouTube promos
+                if "youtube" in final_url.lower() or "ugc-video" in final_url.lower():
+                    continue
+                size_bytes = int(st.get("size") or 0)
+                size_mb = size_bytes / (1024 * 1024) if size_bytes else 0
+                dur = st.get("duration")
+                if dur and 0 < dur <= 90:
+                    continue
+                if size_mb > 0 and size_mb < 20 and not (".mpd" in final_url or "dash" in final_url.lower()):
                     continue
                 seen_urls.add(final_url)
                 res_str = str(st.get("resolutions", ""))

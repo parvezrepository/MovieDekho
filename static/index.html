@@ -13,7 +13,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=3.1">
+    <link rel="stylesheet" href="/static/css/style.css?v=4.0">
 </head>
 
 <body>
@@ -231,16 +231,6 @@
                                 </svg>
                                 <span id="detailWatchBtnText">Watch Movie / Series</span>
                             </button>
-                            <button class="btn btn-secondary" id="detailTrailerBtn" onclick="watchTrailerFromDetails()">
-                                🎬 Watch Official Trailer
-                            </button>
-                        </div>
-                        <div id="detailUpcomingNotice" class="upcoming-notice" style="display: none;">
-                            <span class="upcoming-icon">📢</span>
-                            <div>
-                                <strong>Upcoming Theatrical / Digital Premiere</strong>
-                                <p>This title has not officially released yet. Watch the official trailer now.</p>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -319,21 +309,12 @@
                     </div>
                 </div>
                 <div class="player-top-actions">
-                    <button class="btn-sm btn-ghost" id="playerTrailerToggleBtn" onclick="togglePlayerTrailer()"
-                        title="Watch Official Trailer">🎬 Trailer</button>
                     <button class="player-close-btn" onclick="closePlayer()" title="Close Player (Esc)">&times;</button>
                 </div>
             </div>
 
             <!-- Main Video Player Stage -->
             <div class="video-container" id="videoContainer">
-                <!-- YouTube Trailer Embed Stage -->
-                <div id="trailerContainer" class="trailer-container" style="display: none;">
-                    <iframe id="trailerFrame" src="" class="trailer-frame"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        allowfullscreen></iframe>
-                </div>
-
                 <video id="videoPlayer" playsinline preload="auto" crossorigin="anonymous">
                     Your browser does not support HTML5 video streaming.
                 </video>
@@ -633,7 +614,7 @@
     </a>
 
     <!-- App Script -->
-    <script src="/static/js/app.js?v=3.1"></script>
+    <script src="/static/js/app.js?v=4.0"></script>
 </body>
 
 </html>

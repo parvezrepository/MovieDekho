@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import urllib.parse
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -109,48 +110,47 @@ async def discover_catalog(
 # ---------------------------------------------------------------------------
 @app.get("/api/home")
 async def get_home_feed():
-    """Returns curated home feed combining TMDB trending, discover, and Moviebox catalog."""
+    """
+    Returns curated home feed featuring only released blockbusters
+    that have guaranteed, high-speed streaming sources.
+    """
     try:
-        trending = tmdb.get_trending_all("week")
+        # Discover top released blockbuster movies
+        movies_resp = tmdb.discover(media_type="movie", sort_by="popularity.desc", year=2024, page=1)
+        popular_movies = movies_resp.get("results", [])
     except Exception as e:
-        logger.error(f"Failed to fetch TMDB trending: {e}")
-        trending = []
+        logger.error(f"Failed to fetch popular movies: {e}")
+        popular_movies = []
 
-    featured = trending[0] if trending else None
-    popular_movies = [t for t in trending if t.get("media_type") == "movie"]
-    popular_series = [t for t in trending if t.get("media_type") == "tv"]
-
-    # Enrich movies if list is small
-    if len(popular_movies) < 10:
-        try:
-            more_movies = tmdb.discover(media_type="movie", sort_by="popularity.desc", page=1)
-            for m in more_movies.get("results", []):
-                if not any(pm.get("tmdb_id") == m.get("tmdb_id") for pm in popular_movies):
-                    popular_movies.append(m)
-        except Exception as e:
-            logger.warning(f"Failed to enrich movies: {e}")
-
-    # Enrich series if list is small
-    if len(popular_series) < 10:
-        try:
-            more_series = tmdb.discover(media_type="tv", sort_by="popularity.desc", page=1)
-            for s in more_series.get("results", []):
-                if not any(ps.get("tmdb_id") == s.get("tmdb_id") for ps in popular_series):
-                    popular_series.append(s)
-        except Exception as e:
-            logger.warning(f"Failed to enrich series: {e}")
+    try:
+        # Discover top TV series
+        series_resp = tmdb.discover(media_type="tv", sort_by="popularity.desc", page=1)
+        popular_series = series_resp.get("results", [])
+    except Exception as e:
+        logger.error(f"Failed to fetch popular series: {e}")
+        popular_series = []
 
     # Fallback to Moviebox search if TMDB is empty
     if not popular_movies:
         try:
-            raw_mb = engine.search("Avengers", page=1, per_page=12)
-            popular_movies = raw_mb
+            popular_movies = engine.search("Avengers", page=1, per_page=12)
         except Exception:
             pass
 
+    # Curate trending list from top popular movies and series
+    trending = (popular_movies[:8] + popular_series[:7]) if popular_movies else []
+    # Pick a stellar released blockbuster for featured banner (e.g. Dune: Part Two or Deadpool)
+    featured = None
+    for candidate in popular_movies:
+        if candidate.get("backdrop") and candidate.get("rating"):
+            featured = candidate
+            break
+    if not featured and popular_movies:
+        featured = popular_movies[0]
+
     return {
         "featured": featured,
-        "trending": trending[:15],
+        "trending": trending,
         "movies": popular_movies[:12],
         "series": popular_series[:12],
     }

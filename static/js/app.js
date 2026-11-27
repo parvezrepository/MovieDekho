@@ -56,10 +56,6 @@ const state = {
     searchDebounceTimer: null,
     controlsHideTimer: null,
     isUserScrubbing: false,
-
-    // Trailer Mode
-    isTrailerMode: false,
-    activeDetailTrailer: null,
     currentMediaItem: null,
 
     // Infinite Scroll & Pagination State
@@ -131,16 +127,11 @@ const elements = {
     detailRecSentinel: document.getElementById("detailRecSentinel"),
     detailWatchBtn: document.getElementById("detailWatchBtn"),
     detailWatchBtnText: document.getElementById("detailWatchBtnText"),
-    detailTrailerBtn: document.getElementById("detailTrailerBtn"),
-    detailUpcomingNotice: document.getElementById("detailUpcomingNotice"),
 
     // Video Player Shell & Controls
     playerModal: document.getElementById("playerModal"),
     videoContainer: document.getElementById("videoContainer"),
     videoPlayer: document.getElementById("videoPlayer"),
-    trailerContainer: document.getElementById("trailerContainer"),
-    trailerFrame: document.getElementById("trailerFrame"),
-    playerTrailerToggleBtn: document.getElementById("playerTrailerToggleBtn"),
     playerLoader: document.getElementById("playerLoader"),
     playerLoaderText: document.getElementById("playerLoaderText"),
     playerTitle: document.getElementById("playerTitle"),
@@ -898,12 +889,6 @@ async function openMediaDetails(item) {
     if (elements.detailWatchBtn) {
         elements.detailWatchBtn.classList.remove("btn-trailer-glow");
     }
-    if (elements.detailUpcomingNotice) {
-        elements.detailUpcomingNotice.style.display = "none";
-    }
-    if (elements.detailTrailerBtn) {
-        elements.detailTrailerBtn.style.display = "inline-flex";
-    }
 
     // Initialize recommendation pagination state
     state.detailActiveTmdbId = item.tmdb_id || null;
@@ -928,7 +913,6 @@ async function openMediaDetails(item) {
     }
 
     state.activeDetailItem = item;
-    state.activeDetailTrailer = item.trailer || null;
 
     // Fetch deep details with TMDB cast and recommendations
     let subjectId = item.subject_id;
@@ -980,13 +964,8 @@ async function openMediaDetails(item) {
                 }
             }
 
-            if (details.trailer) {
-                state.activeDetailTrailer = details.trailer;
-            }
             if (elements.detailWatchBtnText) elements.detailWatchBtnText.textContent = "Watch Movie / Series";
             if (elements.detailWatchBtn) elements.detailWatchBtn.classList.remove("btn-trailer-glow");
-            if (elements.detailUpcomingNotice) elements.detailUpcomingNotice.style.display = "none";
-            if (elements.detailTrailerBtn) elements.detailTrailerBtn.style.display = "inline-flex";
         }
     } catch (err) {
         console.error("Detail enrich error:", err);
@@ -1150,12 +1129,6 @@ function watchFromDetails() {
     openPlayer(state.activeDetailItem);
 }
 
-function watchTrailerFromDetails() {
-    if (!state.activeDetailItem) return;
-    closeDetailModal();
-    playTrailerForItem(state.activeDetailItem, state.activeDetailTrailer);
-}
-
 function playHero() {
     if (!state.heroItem) return;
     openPlayer(state.heroItem);
@@ -1226,7 +1199,6 @@ function openPlayerModal(title) {
 }
 
 function closePlayer() {
-    closePlayerTrailer();
     const v = elements.videoPlayer;
     v.pause();
     v.removeAttribute("src");
@@ -1235,103 +1207,6 @@ function closePlayer() {
     elements.playerSettingsPanel.classList.remove("active");
     document.body.style.overflow = "";
     hidePlayerLoader();
-}
-
-// ==========================================================================
-// Official Trailer Management (YouTube 4K Embed)
-// ==========================================================================
-async function playTrailerForItem(item, knownTrailer = null) {
-    if (!item) return;
-    const title = item.title || "Movie";
-    state.currentMediaItem = item;
-    openPlayerModal(title);
-    showPlayerLoader(`Resolving 4K Official Trailer for "${title}"...`);
-
-    let trailer = knownTrailer || item.trailer;
-
-    if (!trailer) {
-        try {
-            const tmdbParam = item.tmdb_id ? `&tmdb_id=${item.tmdb_id}` : "";
-            const typeParam = item.media_type ? `&media_type=${item.media_type}` : "";
-            const resp = await fetch(`/api/trailer?title=${encodeURIComponent(title)}${tmdbParam}${typeParam}`);
-            if (resp.ok) {
-                trailer = await resp.json();
-            }
-        } catch (e) {
-            console.warn("Trailer API fetch error:", e);
-        }
-    }
-
-    if (trailer && (trailer.embed_url || trailer.key)) {
-        const embedUrl = trailer.embed_url || `https://www.youtube-nocookie.com/embed/${trailer.key}?autoplay=1&rel=0&modestbranding=1`;
-        startTrailerPlayback(embedUrl, title, isItemUpcoming(item), trailer.key);
-    } else {
-        const fallbackUrl = `https://www.youtube-nocookie.com/embed?listType=search&list=${encodeURIComponent(title + " official trailer")}&autoplay=1`;
-        startTrailerPlayback(fallbackUrl, title, true, null);
-    }
-}
-
-function startTrailerPlayback(embedUrl, title, isUpcoming = false, key = null) {
-    state.isTrailerMode = true;
-    hidePlayerLoader();
-
-    // Pause & clear native video
-    const v = elements.videoPlayer;
-    v.pause();
-    v.removeAttribute("src");
-    v.style.display = "none";
-
-    // Hide native controls & overlays
-    if (elements.playerControlsOverlay) elements.playerControlsOverlay.style.display = "none";
-    if (elements.customSubtitleLayer) elements.customSubtitleLayer.style.display = "none";
-    if (elements.centerPlayIndicator) elements.centerPlayIndicator.style.display = "none";
-    if (elements.seriesControls) elements.seriesControls.style.display = "none";
-
-    // Display Trailer Iframe
-    if (elements.trailerContainer && elements.trailerFrame) {
-        elements.trailerContainer.style.display = "block";
-        elements.trailerFrame.src = embedUrl;
-    }
-
-    // Update Top Bar Badges
-    elements.playerTitle.textContent = `${title} — Official Trailer`;
-    elements.playerQualityTag.textContent = "4K / 1080p Ultra HD";
-    elements.playerQualityTag.className = "badge badge-accent";
-    elements.playerSourceTag.textContent = "YouTube Official Trailer";
-    elements.playerAudioTag.textContent = "Official Audio";
-    elements.playerSubTag.textContent = isUpcoming ? "Upcoming Movie" : "Trailer Mode";
-    elements.playerSubTag.className = isUpcoming ? "badge badge-upcoming" : "badge badge-primary";
-    elements.playerEpisodeTag.style.display = "none";
-
-    if (elements.playerTrailerToggleBtn) {
-        elements.playerTrailerToggleBtn.textContent = isUpcoming ? "🎬 Trailer" : "▶ Switch to Movie";
-        elements.playerTrailerToggleBtn.style.display = "inline-flex";
-    }
-}
-
-function togglePlayerTrailer() {
-    if (state.isTrailerMode) {
-        if (state.currentMediaItem && !isItemUpcoming(state.currentMediaItem)) {
-            closePlayerTrailer();
-            openPlayer(state.currentMediaItem);
-        } else {
-            showToast("This movie is upcoming. Enjoy the official trailer!", 2500);
-        }
-    } else {
-        if (state.currentMediaItem) {
-            playTrailerForItem(state.currentMediaItem);
-        } else if (state.currentTitle) {
-            playTrailerForItem({ title: state.currentTitle, tmdb_id: state.currentTmdbId });
-        }
-    }
-}
-
-function closePlayerTrailer() {
-    state.isTrailerMode = false;
-    if (elements.trailerFrame) elements.trailerFrame.src = "about:blank";
-    if (elements.trailerContainer) elements.trailerContainer.style.display = "none";
-    elements.videoPlayer.style.display = "block";
-    if (elements.playerControlsOverlay) elements.playerControlsOverlay.style.display = "flex";
 }
 
 async function loadMediaForPlayer(subjectId) {
@@ -1394,8 +1269,10 @@ async function loadStreamsAndCaptions(subjectId, season = 0, episode = 0, resume
         state.availableCaptions = captionData.captions || [];
 
         if (state.availableStreams.length === 0) {
-            showToast("No active stream source found.", 4000);
             hidePlayerLoader();
+            elements.playerModal.classList.remove("active");
+            document.body.style.overflow = "";
+            showToast("Movie stream is currently preparing. Please choose another title!", 3500);
             return;
         }
 
