@@ -13,7 +13,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/style.css?v=5.0">
+    <link rel="stylesheet" href="/static/css/style.css?v=7.2">
 </head>
 
 <body>
@@ -474,37 +474,40 @@
                     </div>
                 </div>
 
+                <!-- Settings Backdrop for Mobile & Desktop Dismissal -->
+                <div id="settingsBackdrop" class="settings-backdrop" onclick="toggleSettingsPanel()"></div>
+
                 <!-- =================================================================
                      DEDICATED PLAYER SETTINGS PANEL (GEAR MODAL)
                      ================================================================= -->
                 <div class="player-settings-panel" id="playerSettingsPanel">
                     <div class="settings-header">
-                        <span class="settings-title">Playback Settings</span>
-                        <button class="settings-close" onclick="toggleSettingsPanel()">&times;</button>
+                        <span class="settings-title">⚙️ Playback Settings</span>
+                        <button class="settings-close" onclick="toggleSettingsPanel()" title="Close Settings">&times;</button>
                     </div>
 
                     <!-- Settings Navigation Tabs -->
                     <div class="settings-tabs">
-                        <button class="settings-tab active" onclick="switchSettingsTab('audio')">Audio</button>
-                        <button class="settings-tab" onclick="switchSettingsTab('quality')">Quality</button>
-                        <button class="settings-tab" onclick="switchSettingsTab('source')">Source</button>
-                        <button class="settings-tab" onclick="switchSettingsTab('subtitles')">Subtitles</button>
-                        <button class="settings-tab" onclick="switchSettingsTab('speed')">Speed</button>
-                        <button class="settings-tab" onclick="switchSettingsTab('styling')">Style</button>
+                        <button class="settings-tab active" onclick="switchSettingsTab('quality')">🎬 Quality</button>
+                        <button class="settings-tab" onclick="switchSettingsTab('audio')">🔊 Audio</button>
+                        <button class="settings-tab" onclick="switchSettingsTab('source')">🌐 Source</button>
+                        <button class="settings-tab" onclick="switchSettingsTab('subtitles')">💬 Subtitles</button>
+                        <button class="settings-tab" onclick="switchSettingsTab('speed')">⚡ Speed</button>
+                        <button class="settings-tab" onclick="switchSettingsTab('styling')">🎨 Sub Style</button>
                     </div>
 
                     <!-- Settings Content Sections -->
                     <div class="settings-content">
-                        <!-- 1. Audio Track Menu -->
-                        <div class="settings-section active" id="sec-audio">
-                            <p class="settings-hint">Select audio track (seamlessly preserves playback time):</p>
-                            <div class="settings-options" id="audioOptionsList"></div>
-                        </div>
-
-                        <!-- 2. Video Quality Menu -->
-                        <div class="settings-section" id="sec-quality">
+                        <!-- 1. Video Quality Menu (Active by default) -->
+                        <div class="settings-section active" id="sec-quality">
                             <p class="settings-hint">Select stream resolution:</p>
                             <div class="settings-options" id="qualityOptionsList"></div>
+                        </div>
+
+                        <!-- 2. Audio Track Menu -->
+                        <div class="settings-section" id="sec-audio">
+                            <p class="settings-hint">Select audio track (seamlessly preserves playback time):</p>
+                            <div class="settings-options" id="audioOptionsList"></div>
                         </div>
 
                         <!-- 3. Streaming Source Menu -->
@@ -624,7 +627,7 @@
     </a>
 
     <!-- App Script -->
-    <script src="/static/js/app.js?v=7.1"></script>
+    <script src="/static/js/app.js?v=7.2"></script>
 </body>
 
 </html>

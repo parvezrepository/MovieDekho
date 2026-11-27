@@ -1273,6 +1273,8 @@ function closePlayer() {
     v.load();
     elements.playerModal.classList.remove("active");
     elements.playerSettingsPanel.classList.remove("active");
+    const backdrop = document.getElementById("settingsBackdrop");
+    if (backdrop) backdrop.classList.remove("active");
     document.body.style.overflow = "";
     hidePlayerLoader();
 }
@@ -2022,19 +2024,54 @@ async function toggleFullscreen() {
 window.toggleFullscreen = toggleFullscreen;
 
 function toggleSettingsPanel() {
-    elements.playerSettingsPanel.classList.toggle("active");
+    const panel = elements.playerSettingsPanel;
+    const backdrop = document.getElementById("settingsBackdrop");
+    const isActive = panel.classList.toggle("active");
+    if (backdrop) {
+        backdrop.classList.toggle("active", isActive);
+    }
+    if (isActive) {
+        // Ensure at least one section is active; default to quality if none active
+        const activeSection = panel.querySelector(".settings-section.active");
+        if (!activeSection) {
+            switchSettingsTab("quality");
+        }
+        // Scroll active tab into view in the horizontal pill bar
+        const activeTab = panel.querySelector(".settings-tab.active");
+        if (activeTab && activeTab.scrollIntoView) {
+            activeTab.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+        }
+    }
 }
 
 function switchSettingsTab(tabName) {
     document.querySelectorAll(".settings-tab").forEach((t) => t.classList.remove("active"));
     document.querySelectorAll(".settings-section").forEach((s) => s.classList.remove("active"));
 
-    const targetTab = Array.from(document.querySelectorAll(".settings-tab")).find((t) => t.getAttribute("onclick")?.includes(tabName));
-    if (targetTab) targetTab.classList.add("active");
+    const targetTab = Array.from(document.querySelectorAll(".settings-tab")).find((t) =>
+        t.getAttribute("onclick")?.includes(`'${tabName}'`)
+    );
+    if (targetTab) {
+        targetTab.classList.add("active");
+        if (targetTab.scrollIntoView) {
+            targetTab.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+        }
+    }
 
     const targetSection = document.getElementById(`sec-${tabName}`);
     if (targetSection) targetSection.classList.add("active");
 }
+
+// Dismiss settings panel on tap outside
+document.addEventListener("click", (e) => {
+    if (elements.playerSettingsPanel && elements.playerSettingsPanel.classList.contains("active")) {
+        if (!e.target.closest("#playerSettingsPanel") && !e.target.closest("#settingsBtn")) {
+            elements.playerSettingsPanel.classList.remove("active");
+            const backdrop = document.getElementById("settingsBackdrop");
+            if (backdrop) backdrop.classList.remove("active");
+        }
+    }
+});
 
 function resetControlsTimer() {
     elements.playerControlsOverlay.classList.remove("hide");
