@@ -1383,7 +1383,7 @@ async function loadStreamsAndCaptions(subjectId, season = 0, episode = 0, resume
             hidePlayerLoader();
             elements.playerModal.classList.remove("active");
             document.body.style.overflow = "";
-            showToast("Movie stream is currently preparing. Please choose another title!", 3500);
+            showToast(`"${state.currentTitle || 'This movie'}" is not yet released on digital streaming/OTT. Please choose any released movie from Home or Search!`, 4500);
             return;
         }
 

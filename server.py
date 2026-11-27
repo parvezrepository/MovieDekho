@@ -76,7 +76,9 @@ TMDB_SUBJECT_CACHE: Dict[str, str] = {
     "avengers endgame": "4570768632724293216",
     "joker": "5419522245645451312",
     "the batman": "6943735727302001520",
-    "the hunger games: sunrise on the reaping": "8472910485960182748",
+    "the hunger games": "6370048425433908264",
+    "the hunger games (2012)": "6370048425433908264",
+    "the hunger games: the ballad of songbirds & snakes": "2526624976283811792",
 
     # Blockbuster Series
     "the lord of the rings: the rings of power": "6853990427147001176",
@@ -161,6 +163,10 @@ async def get_home_feed():
         if not item:
             return False
         if item.get("is_upcoming") is True:
+            return False
+        title_lower = (item.get("title") or "").lower()
+        # Strictly exclude known future unreleased blockbuster placeholders
+        if any(unrel in title_lower for unrel in ("sunrise on the reaping", "doomsday", "secret wars", "beyond the spider-verse")):
             return False
         rel = item.get("release_date") or item.get("first_air_date") or ""
         # Filter unreleased future release dates (e.g. late 2026 / 2027)
@@ -398,9 +404,15 @@ async def resolve_tmdb_to_moviebox(
         if not candidates:
             return {"subject_id": None, "error": "Not found in streaming catalog"}
 
-        best_id = candidates[0].get("subject_id")
+        import datetime
+        today_str = datetime.date.today().isoformat()
+        # Prefer candidates that have an established release date in the past
+        released_candidates = [c for c in candidates if (c.get("release_date") or "") and (c.get("release_date") or "") <= today_str]
+        candidate_pool = released_candidates if released_candidates else candidates
+
+        best_id = candidate_pool[0].get("subject_id")
         if year:
-            for c in candidates:
+            for c in candidate_pool:
                 if (c.get("release_date") or "").startswith(str(year)):
                     best_id = c.get("subject_id")
                     break
