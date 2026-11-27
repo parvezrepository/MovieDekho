@@ -8,6 +8,7 @@ Advanced FastAPI backend providing:
 - Comprehensive Discovery Engine: Genre filtering, year filters, minimum ratings, recommendations, and cast.
 """
 
+import hashlib
 import logging
 import os
 import re
