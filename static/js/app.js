@@ -1658,28 +1658,29 @@ async function switchAudioTrack(track) {
 }
 
 // ==========================================================================
-// Subtitles Engine (Bangla, English & Customizer)
+// Subtitles Engine (Guaranteed Realtime Bangla, English & Multi-Lang)
 // ==========================================================================
 function renderSubtitleOptions(captions) {
     elements.subtitleOptionsList.innerHTML = "";
 
     // Option 1: Off
     const offBtn = document.createElement("button");
-    const isOff = state.activeSubtitleCode === "off";
+    const isOff = !state.activeSubtitleCode || state.activeSubtitleCode === "off";
     offBtn.className = "option-btn" + (isOff ? " active" : "");
     offBtn.innerHTML = `<span>Subtitles Off</span>${isOff ? "<span>✓</span>" : ""}`;
     offBtn.addEventListener("click", () => setSubtitle("off"));
     elements.subtitleOptionsList.appendChild(offBtn);
 
-    // List detected subtitles (Bangla & English prioritized)
+    // List clean, prioritized subtitles (Bangla #1, English #2)
     captions.forEach((cap) => {
         const btn = document.createElement("button");
         const isActive = state.activeSubtitleCode === cap.code;
         btn.className = "option-btn" + (isActive ? " active" : "");
 
         let badge = "💬";
-        if (cap.is_bangla) badge = "🇧🇩";
-        if (cap.is_english) badge = "🇬🇧";
+        if (cap.is_bangla || cap.code === "bn") badge = "🇧🇩";
+        else if (cap.is_english || cap.code === "en") badge = "🇬🇧";
+        else if (cap.code === "hi") badge = "🇮🇳";
 
         btn.innerHTML = `<span>${badge} ${escapeHtml(cap.language)}</span>${isActive ? "<span>✓</span>" : ""}`;
         btn.addEventListener("click", () => {
@@ -1688,14 +1689,12 @@ function renderSubtitleOptions(captions) {
         elements.subtitleOptionsList.appendChild(btn);
     });
 
-    // Auto-activate Bangla if available, else English
-    const banglaCap = captions.find((c) => c.is_bangla);
-    const englishCap = captions.find((c) => c.is_english);
-
-    if (banglaCap && state.activeSubtitleCode === "off") {
-        setSubtitleTrack(banglaCap.vtt_url, "বাংলা (Bangla)", "bn");
-    } else if (englishCap && state.activeSubtitleCode === "off") {
-        setSubtitleTrack(englishCap.vtt_url, "English", "en");
+    // If user previously turned subtitles on (preference), maintain Bangla subtitle
+    if (state.subtitleUserWantsOn && state.activeSubtitleCode === "off") {
+        const banglaCap = captions.find((c) => c.is_bangla || c.code === "bn");
+        if (banglaCap) {
+            setSubtitleTrack(banglaCap.vtt_url, "বাংলা (Bangla)", "bn");
+        }
     }
 }
 
@@ -1711,6 +1710,7 @@ function setSubtitleTrack(vttUrl, label, code) {
 
     elements.videoPlayer.appendChild(track);
     state.activeSubtitleCode = code;
+    state.subtitleUserWantsOn = true;
 
     elements.playerSubTag.textContent = `${label} ON`;
     elements.ccToggleBtn.classList.add("active");
@@ -1729,6 +1729,7 @@ function setSubtitle(mode) {
     if (mode === "off") {
         clearSubtitles();
         state.activeSubtitleCode = "off";
+        state.subtitleUserWantsOn = false;
         elements.playerSubTag.textContent = "Subtitles Off";
         elements.ccToggleBtn.classList.remove("active");
         renderSubtitleOptions(state.availableCaptions);
@@ -1737,11 +1738,13 @@ function setSubtitle(mode) {
 }
 
 function toggleSubtitlesQuick() {
-    if (state.activeSubtitleCode !== "off") {
+    if (state.activeSubtitleCode && state.activeSubtitleCode !== "off") {
         setSubtitle("off");
     } else {
-        const banglaCap = state.availableCaptions.find((c) => c.is_bangla);
-        const englishCap = state.availableCaptions.find((c) => c.is_english);
+        // When turning subtitles ON, ALWAYS activate Bangla (বাংলা)!
+        const banglaCap = state.availableCaptions.find((c) => c.is_bangla || c.code === "bn");
+        const englishCap = state.availableCaptions.find((c) => c.is_english || c.code === "en");
+
         if (banglaCap) {
             setSubtitleTrack(banglaCap.vtt_url, "বাংলা (Bangla)", "bn");
         } else if (englishCap) {
